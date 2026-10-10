@@ -139,9 +139,6 @@ impl I18n {
             (Locale::ZhCn, Message::LanguageEnglish) => "English",
             (Locale::ZhCn, Message::SettingsKeyboardHint) => "Esc 返回",
             (Locale::ZhCn, Message::SettingsUpdatesTitle) => "软件更新",
-            (Locale::ZhCn, Message::SettingsUpdatesDescription) => {
-                "通过 GitHub 查看 Jump1 的新版本、更新日志和版本记录"
-            }
             (Locale::ZhCn, Message::SettingsCurrentVersion) => "当前版本",
             (Locale::ZhCn, Message::SettingsCheckForUpdates) => "检查更新",
             (Locale::ZhCn, Message::SettingsCheckingUpdates) => "正在检查…",
@@ -158,11 +155,7 @@ impl I18n {
             (Locale::ZhCn, Message::SettingsDownloadFailed) => "下载失败",
             (Locale::ZhCn, Message::SettingsInstallFailed) => "安装失败",
             (Locale::ZhCn, Message::SettingsReleaseNotes) => "更新日志",
-            (Locale::ZhCn, Message::SettingsVersionHistory) => "版本记录",
             (Locale::ZhCn, Message::SettingsOpenRelease) => "在 GitHub 查看",
-            (Locale::ZhCn, Message::SettingsUpdateInstallHint) => {
-                "下载完成后点击“安装并重启”，Jump1 会自动替换并重新打开"
-            }
             (Locale::ZhCn, Message::ClipboardHistoryLimit) => "历史记录数量",
             (Locale::ZhCn, Message::ClipboardHistoryLimitDescription) => "保存的剪切板条目数量",
             (Locale::ZhCn, Message::RecentApplications) => "最近使用",
@@ -290,9 +283,6 @@ impl I18n {
             (Locale::EnUs, Message::LanguageEnglish) => "English",
             (Locale::EnUs, Message::SettingsKeyboardHint) => "Esc Back",
             (Locale::EnUs, Message::SettingsUpdatesTitle) => "Software Updates",
-            (Locale::EnUs, Message::SettingsUpdatesDescription) => {
-                "Check Jump1 releases, release notes, and version history on GitHub"
-            }
             (Locale::EnUs, Message::SettingsCurrentVersion) => "Current version",
             (Locale::EnUs, Message::SettingsCheckForUpdates) => "Check for updates",
             (Locale::EnUs, Message::SettingsCheckingUpdates) => "Checking…",
@@ -309,11 +299,7 @@ impl I18n {
             (Locale::EnUs, Message::SettingsDownloadFailed) => "Download failed",
             (Locale::EnUs, Message::SettingsInstallFailed) => "Installation failed",
             (Locale::EnUs, Message::SettingsReleaseNotes) => "Release notes",
-            (Locale::EnUs, Message::SettingsVersionHistory) => "Version history",
             (Locale::EnUs, Message::SettingsOpenRelease) => "View on GitHub",
-            (Locale::EnUs, Message::SettingsUpdateInstallHint) => {
-                "After the download, choose Install and Relaunch. Jump1 will replace itself and reopen"
-            }
             (Locale::EnUs, Message::ClipboardHistoryLimit) => "History limit",
             (Locale::EnUs, Message::ClipboardHistoryLimitDescription) => {
                 "Number of clipboard entries to keep"
@@ -550,7 +536,6 @@ pub enum Message {
     LanguageEnglish,
     SettingsKeyboardHint,
     SettingsUpdatesTitle,
-    SettingsUpdatesDescription,
     SettingsCurrentVersion,
     SettingsCheckForUpdates,
     SettingsCheckingUpdates,
@@ -567,9 +552,7 @@ pub enum Message {
     SettingsDownloadFailed,
     SettingsInstallFailed,
     SettingsReleaseNotes,
-    SettingsVersionHistory,
     SettingsOpenRelease,
-    SettingsUpdateInstallHint,
     ClipboardHistoryLimit,
     ClipboardHistoryLimitDescription,
     RecentApplications,

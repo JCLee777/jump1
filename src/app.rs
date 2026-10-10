@@ -545,7 +545,7 @@ impl Jump1Shell {
 
         let request = cx
             .background_executor()
-            .spawn(async { crate::update::fetch_release_history() });
+            .spawn(async { crate::update::fetch_latest_release() });
         cx.spawn(async move |this, cx| {
             let status = match request.await {
                 Ok(releases) => UpdateStatus::Ready(releases),

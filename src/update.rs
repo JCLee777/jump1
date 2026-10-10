@@ -17,11 +17,9 @@ use crate::i18n::Locale;
 #[derive(Clone, Debug)]
 pub struct ReleaseEntry {
     pub version: String,
-    pub name: String,
     pub notes: ReleaseNotes,
     pub release_url: String,
     pub download_url: Option<String>,
-    pub published_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -437,7 +435,7 @@ backup_root=""
 "#;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub fn fetch_release_history() -> Result<Vec<ReleaseEntry>, String> {
+pub fn fetch_latest_release() -> Result<Vec<ReleaseEntry>, String> {
     let releases = GitHubReleaseClient::new()?.releases()?;
 
     Ok(releases
@@ -469,12 +467,6 @@ pub fn fetch_release_history() -> Result<Vec<ReleaseEntry>, String> {
                 .map(str::to_owned);
             Some(ReleaseEntry {
                 version,
-                name: release
-                    .get("name")
-                    .and_then(serde_json::Value::as_str)
-                    .filter(|name| !name.trim().is_empty())
-                    .unwrap_or(&version_number)
-                    .to_owned(),
                 notes: ReleaseNotes::from_markdown(
                     release
                         .get("body")
@@ -483,12 +475,9 @@ pub fn fetch_release_history() -> Result<Vec<ReleaseEntry>, String> {
                 ),
                 release_url,
                 download_url,
-                published_at: release
-                    .get("published_at")
-                    .and_then(serde_json::Value::as_str)
-                    .map(|value| value.chars().take(10).collect()),
             })
         })
+        .take(1)
         .collect())
 }
 
@@ -523,7 +512,7 @@ impl GitHubReleaseClient {
 
     fn api_releases(&self) -> Result<Vec<serde_json::Value>, String> {
         const RELEASES_API: &str =
-            "https://api.github.com/repos/JCLee777/jump1/releases?per_page=10";
+            "https://api.github.com/repos/JCLee777/jump1/releases?per_page=1";
 
         let response = self
             .client
@@ -582,30 +571,18 @@ impl GitHubReleaseClient {
                     return None;
                 }
 
-                let title = entry
-                    .children()
-                    .find(|node| node.is_element() && node.tag_name().name() == "title")
-                    .and_then(|node| node.text())
-                    .unwrap_or(tag);
                 let body = entry
                     .children()
                     .find(|node| node.is_element() && node.tag_name().name() == "content")
                     .and_then(|node| node.text())
                     .map(github_html_to_markdown)
                     .unwrap_or_default();
-                let published_at = entry
-                    .children()
-                    .find(|node| node.is_element() && node.tag_name().name() == "updated")
-                    .and_then(|node| node.text())
-                    .map(|value| value.chars().take(10).collect::<String>());
                 let download_name = format!("Jump1-{version_number}-aarch64.dmg");
 
                 Some(serde_json::json!({
                     "tag_name": tag,
-                    "name": title,
                     "body": body,
                     "html_url": format!("{RELEASE_PAGE_PREFIX}{tag}"),
-                    "published_at": published_at,
                     "draft": false,
                     "prerelease": false,
                     "assets": [{
@@ -616,6 +593,7 @@ impl GitHubReleaseClient {
                     }]
                 }))
             })
+            .take(1)
             .collect::<Vec<_>>();
 
         if releases.is_empty() {

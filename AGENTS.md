@@ -17,7 +17,7 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
 - `src/plugin/protocol.rs`: contain shared plugin-host result and action types.
 - `src/state.rs`: contain persisted application-wide preferences only.
 - `src/theme.rs`: own application metrics and resolve semantic design tokens.
-- `src/update.rs`: query and parse the supported GitHub Release feed.
+- `src/update.rs`: query the latest supported GitHub Release and parse its notes.
 - `.github/workflows/release.yml`: validate tags and build/publish macOS ARM64 releases.
 - `CHANGELOG.md`: record user-facing changes for each version.
 - `docs/architecture.md`: record module boundaries and extension decisions.
@@ -65,8 +65,9 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
   Relaunch before the updater replaces the current app bundle. Restrict
   downloads to the matching official ARM64 release asset, validate the staged
   app bundle identity and version, and retain the GitHub release page as a
-  manual fallback. Keep target gating, download naming, and displayed release
-  history aligned with the published assets; never install or relaunch silently.
+  manual fallback. Keep target gating and download naming aligned with the
+  published assets, and show the latest release with localized notes; never
+  install or relaunch silently.
 - Do not add other release platforms or update feeds without updating this
   policy, the workflow, and the user-facing release documentation together.
 

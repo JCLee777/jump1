@@ -20,7 +20,7 @@ use crate::{
         shortcuts::{ShortcutBinding, ShortcutBindingEvent},
     },
     theme::{AppTheme, PanelSizePreset},
-    update::{ReleaseEntry, UpdateStatus, is_newer_version},
+    update::{UpdateStatus, is_newer_version},
 };
 
 use super::{SettingDefinition, SettingsChange, SettingsSection};
@@ -369,26 +369,15 @@ fn update_panel(
             format!("{}: {error}", i18n.text(Message::SettingsCheckFailed))
         }
         UpdateStatus::Ready(releases) => match releases.first() {
-            Some(release) if has_update => format!(
-                "{}：{}",
-                i18n.text(Message::SettingsUpdateAvailable),
-                release.version
-            ),
+            Some(_) if has_update => i18n.text(Message::SettingsUpdateAvailable).to_owned(),
             Some(_) => i18n.text(Message::SettingsUpToDate).to_owned(),
             None => i18n.text(Message::SettingsNoReleases).to_owned(),
         },
-        UpdateStatus::Downloading { version, .. } => format!(
-            "{}：{version}",
-            i18n.text(Message::SettingsDownloadingUpdate)
-        ),
-        UpdateStatus::Downloaded { version, .. } => format!(
-            "{}：{version}",
-            i18n.text(Message::SettingsUpdateDownloaded)
-        ),
-        UpdateStatus::Installing { version, .. } => format!(
-            "{}：{version}",
-            i18n.text(Message::SettingsInstallingUpdate)
-        ),
+        UpdateStatus::Downloading { .. } => {
+            i18n.text(Message::SettingsDownloadingUpdate).to_owned()
+        }
+        UpdateStatus::Downloaded { .. } => i18n.text(Message::SettingsUpdateDownloaded).to_owned(),
+        UpdateStatus::Installing { .. } => i18n.text(Message::SettingsInstallingUpdate).to_owned(),
         UpdateStatus::DownloadFailed { error, .. } => {
             format!("{}: {error}", i18n.text(Message::SettingsDownloadFailed))
         }
@@ -396,21 +385,20 @@ fn update_panel(
             format!("{}: {error}", i18n.text(Message::SettingsInstallFailed))
         }
     };
-    let is_checking = matches!(status, UpdateStatus::Checking);
     let is_busy = status.is_busy();
-    let check_label = if is_checking {
+    let check_label = if matches!(status, UpdateStatus::Checking) {
         i18n.text(Message::SettingsCheckingUpdates)
     } else {
         i18n.text(Message::SettingsCheckForUpdates)
     };
     let check_callback = on_check.clone();
 
-    let panel = div()
+    let mut panel = div()
         .w_full()
         .flex()
         .flex_col()
-        .gap(spacing.md)
-        .p(spacing.lg)
+        .gap(spacing.sm)
+        .p(spacing.md)
         .rounded(theme.semantic.radius.lg)
         .border_1()
         .border_color(colors.border)
@@ -420,7 +408,7 @@ fn update_panel(
                 .flex()
                 .items_center()
                 .justify_between()
-                .gap(spacing.lg)
+                .gap(spacing.md)
                 .child(
                     div()
                         .flex()
@@ -436,7 +424,10 @@ fn update_panel(
                             div()
                                 .text_size(typography.xs.size)
                                 .text_color(colors.muted_foreground)
-                                .child(i18n.text(Message::SettingsUpdatesDescription)),
+                                .child(format!(
+                                    "{}：v{current_version}",
+                                    i18n.text(Message::SettingsCurrentVersion)
+                                )),
                         ),
                 )
                 .child(
@@ -462,27 +453,14 @@ fn update_panel(
         )
         .child(
             div()
-                .flex()
-                .flex_col()
-                .gap(spacing.xs)
-                .child(
-                    div()
-                        .text_size(typography.xs.size)
-                        .text_color(colors.muted_foreground)
-                        .child(format!(
-                            "{}：v{current_version}",
-                            i18n.text(Message::SettingsCurrentVersion)
-                        )),
-                )
-                .child(
-                    div()
-                        .text_size(typography.sm.size)
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(state_text),
-                ),
+                .text_size(typography.xs.size)
+                .text_color(colors.muted_foreground)
+                .child(state_text),
         );
 
-    let panel = if let Some(release) = latest {
+    if let Some(release) =
+        latest.filter(|_| has_update || matches!(status, UpdateStatus::InstallFailed { .. }))
+    {
         enum UpdateButtonAction {
             OpenRelease(String),
             Download(String, String),
@@ -504,11 +482,11 @@ fn update_panel(
                 i18n.text(Message::SettingsInstallUpdate),
                 UpdateButtonAction::Install(version.clone(), dmg_path.clone()),
             ),
-            UpdateStatus::InstallFailed { .. } => (
+            UpdateStatus::InstallFailed { version, .. } if version == &release.version => (
                 i18n.text(Message::SettingsOpenRelease),
                 UpdateButtonAction::OpenRelease(release.release_url.clone()),
             ),
-            _ if has_update && release.download_url.is_some() => (
+            _ if release.download_url.is_some() => (
                 i18n.text(Message::SettingsDownloadUpdate),
                 UpdateButtonAction::Download(
                     release.version.clone(),
@@ -521,8 +499,8 @@ fn update_panel(
             ),
         };
         let mut update_button = div()
-            .id("settings-open-latest-release")
-            .h(px(30.))
+            .id("settings-update-action")
+            .h(px(28.))
             .px(spacing.sm)
             .flex()
             .items_center()
@@ -555,7 +533,8 @@ fn update_panel(
             }
             UpdateButtonAction::Disabled => update_button,
         };
-        let panel = panel.child(
+
+        panel = panel.child(
             div()
                 .flex()
                 .items_center()
@@ -563,24 +542,17 @@ fn update_panel(
                 .gap(spacing.md)
                 .child(
                     div()
-                        .id("settings-latest-release")
                         .text_size(typography.xs.size)
                         .text_color(colors.primary)
-                        .cursor_pointer()
-                        .on_click({
-                            let url = release.release_url.clone();
-                            let callback = on_open_release.clone();
-                            move |_, window, cx| callback(url.clone(), window, cx)
-                        })
-                        .child(release.name.clone()),
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(format!("v{}", release.version)),
                 )
                 .child(update_button),
         );
+
         let notes = release.notes.for_locale(i18n.locale());
-        let panel = if notes.is_empty() {
-            panel
-        } else {
-            panel
+        if !notes.is_empty() && has_update {
+            panel = panel
                 .child(div().h(theme.metrics.divider).bg(colors.border))
                 .child(
                     div()
@@ -600,91 +572,29 @@ fn update_panel(
                                 .text_color(colors.muted_foreground)
                                 .child(notes.to_owned()),
                         ),
-                )
-        };
-        let panel = if has_update
-            && release.download_url.is_some()
-            && !matches!(status, UpdateStatus::InstallFailed { .. })
-        {
-            panel.child(
-                div()
-                    .text_size(typography.xs.size)
-                    .text_color(colors.muted_foreground)
-                    .child(i18n.text(Message::SettingsUpdateInstallHint)),
-            )
-        } else {
-            panel
-        };
-        panel
-    } else {
-        panel
-    };
-
-    match releases {
-        Some(releases) if !releases.is_empty() => panel
-            .child(div().h(theme.metrics.divider).bg(colors.border))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(spacing.xs)
-                    .child(
-                        div()
-                            .mb(spacing.xs)
-                            .text_size(typography.xs.size)
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(i18n.text(Message::SettingsVersionHistory)),
-                    )
-                    .children(releases.iter().enumerate().map(|(index, release)| {
-                        version_history_row(index, release, i18n, theme, on_open_release)
-                    })),
-            ),
-        _ => panel,
+                );
+        }
     }
-}
 
-fn version_history_row(
-    index: usize,
-    release: &ReleaseEntry,
-    i18n: &I18n,
-    theme: &AppTheme,
-    on_open_release: &OpenReleaseHandler,
-) -> impl IntoElement {
-    let colors = theme.semantic.colors;
-    let spacing = theme.semantic.spacing;
-    let typography = &theme.semantic.typography;
-    let url = release.release_url.clone();
-    let callback = on_open_release.clone();
-    div()
-        .id(format!("settings-release-{index}"))
-        .w_full()
-        .min_h(px(30.))
-        .px(spacing.sm)
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(spacing.md)
-        .rounded(theme.semantic.radius.sm)
-        .cursor_pointer()
-        .hover(move |this| this.bg(colors.muted))
-        .on_click(move |_, window, cx| callback(url.clone(), window, cx))
-        .child(
+    let fallback_url = match status {
+        UpdateStatus::Failed(_) => Some("https://github.com/JCLee777/jump1/releases".to_owned()),
+        UpdateStatus::DownloadFailed { .. } => latest.map(|release| release.release_url.clone()),
+        _ => None,
+    };
+    if let Some(url) = fallback_url {
+        let callback = on_open_release.clone();
+        panel = panel.child(
             div()
+                .id("settings-open-releases")
                 .text_size(typography.xs.size)
-                .child(release.version.clone()),
-        )
-        .child(
-            div()
-                .text_size(typography.xs.size)
-                .text_color(colors.muted_foreground)
-                .child(
-                    release
-                        .published_at
-                        .as_deref()
-                        .unwrap_or(i18n.text(Message::SettingsOpenRelease))
-                        .to_owned(),
-                ),
-        )
+                .text_color(colors.primary)
+                .cursor_pointer()
+                .on_click(move |_, window, cx| callback(url.clone(), window, cx))
+                .child(i18n.text(Message::SettingsOpenRelease)),
+        );
+    }
+
+    panel
 }
 
 fn plugin_presentation(plugin: PluginId, i18n: &I18n) -> (&'static str, &'static str, Glyph) {

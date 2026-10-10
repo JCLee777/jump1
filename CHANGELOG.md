@@ -3,6 +3,18 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.5] - 2026-10-10
+
+### 简体中文
+
+- 简化软件更新页面，聚焦当前版本、更新状态和新版本说明。
+- 移除冗余介绍、安装提示和历史版本列表。
+
+### English
+
+- Simplified the software update page to focus on the current version, update status, and new release notes.
+- Removed redundant descriptions, installation hints, and release history.
+
 ## [0.1.4] - 2026-10-10
 
 ### 简体中文
