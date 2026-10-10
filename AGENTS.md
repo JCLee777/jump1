@@ -48,6 +48,10 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
 - Every release must have a matching `CHANGELOG.md` section headed
   `## [MAJOR.MINOR.PATCH]` with user-facing release notes. Do not publish a
   version without that entry.
+- Each release note section must include non-empty `### 简体中文` and
+  `### English` sections. The release workflow validates both; the in-app
+  updater displays the section matching the selected app locale and falls back
+  to the available translation or original notes.
 - Publish through GitHub Releases only. Push a `vMAJOR.MINOR.PATCH` tag that
   matches `Cargo.toml`; `.github/workflows/release.yml` validates the tag and
   changelog before publishing. Release notes come from that changelog section.

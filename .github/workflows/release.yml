@@ -39,6 +39,24 @@ jobs:
             END { if (!found) exit 1 }
           ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
 
+      - name: Verify localized release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! awk '
+            /^### 简体中文[[:space:]]*$/ { locale = "zh"; found_zh = 1; next }
+            /^### English[[:space:]]*$/ { locale = "en"; found_en = 1; next }
+            /^[[:space:]]*$/ { next }
+            {
+              if (locale == "zh") content_zh = 1
+              if (locale == "en") content_en = 1
+            }
+            END { exit !(found_zh && found_en && content_zh && content_en) }
+          ' "$RUNNER_TEMP/release-notes.md"; then
+            echo "Release notes must contain non-empty Simplified Chinese and English sections." >&2
+            exit 1
+          fi
+
       - name: Verify Apple Silicon runner
         run: test "$(uname -m)" = arm64
 

@@ -503,7 +503,8 @@ fn update_panel(
                         .child(button_label),
                 ),
         );
-        let panel = if release.notes.is_empty() {
+        let notes = release.notes.for_locale(i18n.locale());
+        let panel = if notes.is_empty() {
             panel
         } else {
             panel
@@ -524,7 +525,7 @@ fn update_panel(
                                 .text_size(typography.xs.size)
                                 .line_height(typography.xs.line_height)
                                 .text_color(colors.muted_foreground)
-                                .child(release.notes.clone()),
+                                .child(notes.to_owned()),
                         ),
                 )
         };

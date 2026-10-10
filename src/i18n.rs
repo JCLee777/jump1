@@ -38,6 +38,10 @@ impl I18n {
         self.locale = locale;
     }
 
+    pub fn locale(&self) -> Locale {
+        self.locale
+    }
+
     pub fn text(&self, message: Message) -> &'static str {
         match (self.locale, message) {
             (Locale::ZhCn, Message::SearchPlaceholder) => "搜索应用、输入路径或网页关键词…",

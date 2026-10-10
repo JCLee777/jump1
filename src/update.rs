@@ -2,14 +2,91 @@
 
 use std::cmp::Ordering;
 
+use crate::i18n::Locale;
+
 #[derive(Clone, Debug)]
 pub struct ReleaseEntry {
     pub version: String,
     pub name: String,
-    pub notes: String,
+    pub notes: ReleaseNotes,
     pub release_url: String,
     pub download_url: Option<String>,
     pub published_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ReleaseNotes {
+    zh_cn: Option<String>,
+    en_us: Option<String>,
+    fallback: String,
+}
+
+impl ReleaseNotes {
+    fn from_markdown(markdown: &str) -> Self {
+        #[derive(Clone, Copy)]
+        enum Section {
+            ZhCn,
+            EnUs,
+        }
+
+        let mut result = Self::default();
+        let mut section = None;
+        let mut found_localized_section = false;
+
+        for line in markdown.lines() {
+            match line.trim() {
+                "### 简体中文" => {
+                    section = Some(Section::ZhCn);
+                    found_localized_section = true;
+                    continue;
+                }
+                "### English" => {
+                    section = Some(Section::EnUs);
+                    found_localized_section = true;
+                    continue;
+                }
+                _ => {}
+            }
+
+            let Some(section) = section else { continue };
+            let content = match section {
+                Section::ZhCn => result.zh_cn.get_or_insert_with(String::new),
+                Section::EnUs => result.en_us.get_or_insert_with(String::new),
+            };
+            if !content.is_empty() {
+                content.push('\n');
+            }
+            content.push_str(line);
+        }
+
+        if found_localized_section {
+            result.zh_cn = result
+                .zh_cn
+                .take()
+                .map(|notes| notes.trim().to_owned())
+                .filter(|notes| !notes.is_empty());
+            result.en_us = result
+                .en_us
+                .take()
+                .map(|notes| notes.trim().to_owned())
+                .filter(|notes| !notes.is_empty());
+        } else {
+            result.fallback = markdown.trim().to_owned();
+        }
+
+        result
+    }
+
+    pub fn for_locale(&self, locale: Locale) -> &str {
+        let (preferred, other) = match locale {
+            Locale::ZhCn => (self.zh_cn.as_deref(), self.en_us.as_deref()),
+            Locale::EnUs => (self.en_us.as_deref(), self.zh_cn.as_deref()),
+        };
+        preferred
+            .filter(|notes| !notes.is_empty())
+            .or_else(|| other.filter(|notes| !notes.is_empty()))
+            .unwrap_or(&self.fallback)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -80,12 +157,12 @@ pub fn fetch_release_history() -> Result<Vec<ReleaseEntry>, String> {
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or(&version_number)
                     .to_owned(),
-                notes: release
-                    .get("body")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .trim()
-                    .to_owned(),
+                notes: ReleaseNotes::from_markdown(
+                    release
+                        .get("body")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default(),
+                ),
                 release_url,
                 download_url,
                 published_at: release
