@@ -25,6 +25,7 @@ use crate::{
         AppTheme, MAX_PANEL_HEIGHT, MAX_PANEL_WIDTH, MIN_PANEL_HEIGHT, MIN_PANEL_WIDTH,
         PanelSizePreset,
     },
+    update::UpdateStatus,
 };
 
 pub(crate) struct Jump1Shell {
@@ -42,6 +43,7 @@ pub(crate) struct Jump1Shell {
     clipboard_results_scroll: UniformListScrollHandle,
     i18n: I18n,
     plugins: PluginManager,
+    update_status: UpdateStatus,
     selected: usize,
     status: Option<String>,
     recording_shortcut: Option<u64>,
@@ -389,6 +391,7 @@ impl Jump1Shell {
             clipboard_results_scroll: UniformListScrollHandle::new(),
             i18n,
             plugins,
+            update_status: UpdateStatus::default(),
             selected: 0,
             status: None,
             recording_shortcut: None,
@@ -496,10 +499,38 @@ impl Jump1Shell {
                 self.plugins.select_settings_section(section);
                 cx.notify();
             }
+            PluginEvent::CheckForUpdates => {
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                self.check_for_updates(cx);
+            }
             PluginEvent::ShortcutBinding(event) => {
                 self.handle_shortcut_binding_event(event, window, cx);
             }
         }
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    fn check_for_updates(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.update_status, UpdateStatus::Checking) {
+            return;
+        }
+        self.update_status = UpdateStatus::Checking;
+        cx.notify();
+
+        let request = cx
+            .background_executor()
+            .spawn(async { crate::update::fetch_release_history() });
+        cx.spawn(async move |this, cx| {
+            let status = match request.await {
+                Ok(releases) => UpdateStatus::Ready(releases),
+                Err(error) => UpdateStatus::Failed(error),
+            };
+            let _ = this.update(cx, |shell, cx| {
+                shell.update_status = status;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn activate_command(
@@ -825,6 +856,7 @@ impl Render for Jump1Shell {
             self.recording_shortcut,
             self.editing_shortcut_query,
             self.shortcut_conflicts.clone(),
+            &self.update_status,
         );
         #[cfg(target_os = "macos")]
         {

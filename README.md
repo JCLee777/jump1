@@ -53,6 +53,12 @@ macOS 13 及以上的安装版启动时默认显示面板，失去焦点后隐�
 需要随系统登录启动时，在“设置 → 通用”中开启“登录时启动”。该开关使用 macOS 原生
 登录项，系统要求确认时会打开对应的系统设置页面。
 
+## 版本与更新
+
+应用版本号以 `Cargo.toml` 为准，版本变更记录维护在 [CHANGELOG.md](CHANGELOG.md)。发布新版本时，先更新这两处并提交，再推送与版本号一致的 `vMAJOR.MINOR.PATCH` 标签（例如 `v0.2.0`）。GitHub Actions 会在 Apple Silicon macOS runner 上构建 ARM64 DMG，并将对应的变更记录发布到 [GitHub Releases](https://github.com/JCLee777/jump1/releases)。
+
+Apple Silicon Mac 用户可在“设置 → 通用 → 软件更新”检查新版本、查看更新日志和版本记录，并从 GitHub 下载 DMG。下载后打开 DMG，将 Jump1 拖入 Applications 完成更新。其他平台不会显示此更新入口。
+
 ## 结构
 
 - `src/main.rs`：程序入口
@@ -76,6 +82,7 @@ macOS 13 及以上的安装版启动时默认显示面板，失去焦点后隐�
 - `src/state.rs`：主题和语言等全局偏好的持久化
 - `src/plugin/storage.rs`：插件隔离目录和原子持久化能力
 - `src/theme.rs`：主题与设计令牌
+- `src/update.rs`：GitHub Release 检查与版本记录解析
 - `docs/architecture.md`：架构
 
 ## 状态

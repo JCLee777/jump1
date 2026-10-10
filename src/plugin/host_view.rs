@@ -4,11 +4,11 @@ use std::rc::Rc;
 
 use gpui_kit::{component::input::InputState, *};
 
-use crate::{i18n::I18n, theme::AppTheme};
+use crate::{i18n::I18n, theme::AppTheme, update::UpdateStatus};
 
 use super::{
     PluginEvent, PluginId, PluginManager, clipboard::view as clipboard_view,
-    launcher::view as launcher_view, settings::view as settings_view,
+    launcher::view as launcher_view, protocol::CommandAction, settings::view as settings_view,
 };
 
 pub type EventHandler = Rc<dyn for<'a, 'b> Fn(PluginEvent, &'a mut Window, &'b mut App)>;
@@ -29,6 +29,7 @@ pub fn render(
     recording_shortcut: Option<u64>,
     editing_shortcut_query: Option<u64>,
     shortcut_conflicts: Vec<u64>,
+    update_status: &UpdateStatus,
 ) -> AnyElement {
     match plugins.active() {
         PluginId::Launcher => {
@@ -90,6 +91,8 @@ pub fn render(
             let change_handler = on_event;
             let section_handler = change_handler.clone();
             let shortcut_handler = section_handler.clone();
+            let update_handler = section_handler.clone();
+            let release_handler = section_handler.clone();
             let on_back: settings_view::BackHandler = Rc::new(move |window, cx| {
                 back_handler(PluginEvent::Back, window, cx);
             });
@@ -102,6 +105,14 @@ pub fn render(
             let on_shortcut: settings_view::ShortcutHandler = Rc::new(move |event, window, cx| {
                 shortcut_handler(PluginEvent::ShortcutBinding(event), window, cx);
             });
+            let on_check_updates: settings_view::CheckUpdatesHandler =
+                Rc::new(move |window, cx| {
+                    update_handler(PluginEvent::CheckForUpdates, window, cx);
+                });
+            let on_open_release: settings_view::OpenReleaseHandler =
+                Rc::new(move |url, window, cx| {
+                    release_handler(PluginEvent::Action(CommandAction::Url(url)), window, cx);
+                });
             settings_view::render(
                 input,
                 panel_width_input,
@@ -119,6 +130,9 @@ pub fn render(
                 on_change,
                 on_section,
                 on_shortcut,
+                update_status,
+                on_check_updates,
+                on_open_release,
             )
         }
         PluginId::System | PluginId::Shortcuts => {

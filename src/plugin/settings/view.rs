@@ -20,6 +20,7 @@ use crate::{
         shortcuts::{ShortcutBinding, ShortcutBindingEvent},
     },
     theme::{AppTheme, PanelSizePreset},
+    update::{ReleaseEntry, UpdateStatus, is_newer_version},
 };
 
 use super::{SettingDefinition, SettingsChange, SettingsSection};
@@ -30,6 +31,8 @@ pub type ChangeHandler = Rc<dyn for<'a, 'b> Fn(SettingsChange, &'a mut Window, &
 pub type SectionHandler = Rc<dyn for<'a, 'b> Fn(SettingsSection, &'a mut Window, &'b mut App)>;
 pub type ShortcutHandler =
     Rc<dyn for<'a, 'b> Fn(ShortcutBindingEvent, &'a mut Window, &'b mut App)>;
+pub type CheckUpdatesHandler = Rc<dyn for<'a, 'b> Fn(&'a mut Window, &'b mut App)>;
+pub type OpenReleaseHandler = Rc<dyn for<'a, 'b> Fn(String, &'a mut Window, &'b mut App)>;
 
 #[allow(clippy::too_many_arguments)]
 pub fn render(
@@ -49,6 +52,9 @@ pub fn render(
     on_change: ChangeHandler,
     on_section: SectionHandler,
     on_shortcut: ShortcutHandler,
+    update_status: &UpdateStatus,
+    on_check_updates: CheckUpdatesHandler,
+    on_open_release: OpenReleaseHandler,
 ) -> AnyElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
@@ -283,6 +289,19 @@ pub fn render(
                                         &on_change,
                                         theme,
                                     )),
+                            )
+                            .when(
+                                cfg!(all(target_os = "macos", target_arch = "aarch64")),
+                                |this| {
+                                    this.child(update_panel(
+                                        update_status,
+                                        env!("CARGO_PKG_VERSION"),
+                                        i18n,
+                                        theme,
+                                        &on_check_updates,
+                                        &on_open_release,
+                                    ))
+                                },
                             ),
                     )
                 })
@@ -316,6 +335,279 @@ pub fn render(
                 }),
         )
         .into_any_element()
+}
+
+fn update_panel(
+    status: &UpdateStatus,
+    current_version: &str,
+    i18n: &I18n,
+    theme: &AppTheme,
+    on_check: &CheckUpdatesHandler,
+    on_open_release: &OpenReleaseHandler,
+) -> impl IntoElement {
+    let colors = theme.semantic.colors;
+    let spacing = theme.semantic.spacing;
+    let typography = &theme.semantic.typography;
+    let releases = match status {
+        UpdateStatus::Ready(releases) => Some(releases.as_slice()),
+        _ => None,
+    };
+    let latest = releases.and_then(|releases| releases.first());
+    let has_update =
+        latest.is_some_and(|release| is_newer_version(&release.version, current_version));
+    let state_text = match status {
+        UpdateStatus::NotChecked => i18n.text(Message::SettingsNeverChecked).to_owned(),
+        UpdateStatus::Checking => i18n.text(Message::SettingsCheckingUpdates).to_owned(),
+        UpdateStatus::Failed(error) => {
+            format!("{}: {error}", i18n.text(Message::SettingsCheckFailed))
+        }
+        UpdateStatus::Ready(releases) => match releases.first() {
+            Some(release) if has_update => format!(
+                "{}：{}",
+                i18n.text(Message::SettingsUpdateAvailable),
+                release.version
+            ),
+            Some(_) => i18n.text(Message::SettingsUpToDate).to_owned(),
+            None => i18n.text(Message::SettingsNoReleases).to_owned(),
+        },
+    };
+    let is_checking = matches!(status, UpdateStatus::Checking);
+    let check_label = if is_checking {
+        i18n.text(Message::SettingsCheckingUpdates)
+    } else {
+        i18n.text(Message::SettingsCheckForUpdates)
+    };
+    let check_callback = on_check.clone();
+
+    let panel = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(spacing.md)
+        .p(spacing.lg)
+        .rounded(theme.semantic.radius.lg)
+        .border_1()
+        .border_color(colors.border)
+        .bg(theme.materials.surface)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(spacing.lg)
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(spacing.xs)
+                        .child(
+                            div()
+                                .text_size(typography.md.size)
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(i18n.text(Message::SettingsUpdatesTitle)),
+                        )
+                        .child(
+                            div()
+                                .text_size(typography.xs.size)
+                                .text_color(colors.muted_foreground)
+                                .child(i18n.text(Message::SettingsUpdatesDescription)),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("settings-check-updates")
+                        .h(px(32.))
+                        .px(spacing.md)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(theme.semantic.radius.md)
+                        .border_1()
+                        .border_color(colors.border)
+                        .bg(theme.materials.window)
+                        .cursor_pointer()
+                        .text_size(typography.xs.size)
+                        .hover(move |this| this.bg(colors.muted))
+                        .on_click(move |_, window, cx| check_callback(window, cx))
+                        .child(check_label),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(spacing.xs)
+                .child(
+                    div()
+                        .text_size(typography.xs.size)
+                        .text_color(colors.muted_foreground)
+                        .child(format!(
+                            "{}：v{current_version}",
+                            i18n.text(Message::SettingsCurrentVersion)
+                        )),
+                )
+                .child(
+                    div()
+                        .text_size(typography.sm.size)
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(state_text),
+                ),
+        );
+
+    let panel = if let Some(release) = latest {
+        let url = if has_update {
+            release
+                .download_url
+                .clone()
+                .unwrap_or_else(|| release.release_url.clone())
+        } else {
+            release.release_url.clone()
+        };
+        let button_label = if has_update && release.download_url.is_some() {
+            i18n.text(Message::SettingsDownloadUpdate)
+        } else {
+            i18n.text(Message::SettingsOpenRelease)
+        };
+        let open_callback = on_open_release.clone();
+        let panel = panel.child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(spacing.md)
+                .child(
+                    div()
+                        .id("settings-latest-release")
+                        .text_size(typography.xs.size)
+                        .text_color(colors.primary)
+                        .cursor_pointer()
+                        .on_click({
+                            let url = release.release_url.clone();
+                            let callback = on_open_release.clone();
+                            move |_, window, cx| callback(url.clone(), window, cx)
+                        })
+                        .child(release.name.clone()),
+                )
+                .child(
+                    div()
+                        .id("settings-open-latest-release")
+                        .h(px(30.))
+                        .px(spacing.sm)
+                        .flex()
+                        .items_center()
+                        .rounded(theme.semantic.radius.md)
+                        .cursor_pointer()
+                        .bg(colors.accent)
+                        .text_size(typography.xs.size)
+                        .on_click(move |_, window, cx| open_callback(url.clone(), window, cx))
+                        .child(button_label),
+                ),
+        );
+        let panel = if release.notes.is_empty() {
+            panel
+        } else {
+            panel
+                .child(div().h(theme.metrics.divider).bg(colors.border))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(spacing.xs)
+                        .child(
+                            div()
+                                .text_size(typography.xs.size)
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(i18n.text(Message::SettingsReleaseNotes)),
+                        )
+                        .child(
+                            div()
+                                .text_size(typography.xs.size)
+                                .line_height(typography.xs.line_height)
+                                .text_color(colors.muted_foreground)
+                                .child(release.notes.clone()),
+                        ),
+                )
+        };
+        let panel = if has_update && release.download_url.is_some() {
+            panel.child(
+                div()
+                    .text_size(typography.xs.size)
+                    .text_color(colors.muted_foreground)
+                    .child(i18n.text(Message::SettingsUpdateInstallHint)),
+            )
+        } else {
+            panel
+        };
+        panel
+    } else {
+        panel
+    };
+
+    match releases {
+        Some(releases) if !releases.is_empty() => panel
+            .child(div().h(theme.metrics.divider).bg(colors.border))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(spacing.xs)
+                    .child(
+                        div()
+                            .mb(spacing.xs)
+                            .text_size(typography.xs.size)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(i18n.text(Message::SettingsVersionHistory)),
+                    )
+                    .children(releases.iter().enumerate().map(|(index, release)| {
+                        version_history_row(index, release, i18n, theme, on_open_release)
+                    })),
+            ),
+        _ => panel,
+    }
+}
+
+fn version_history_row(
+    index: usize,
+    release: &ReleaseEntry,
+    i18n: &I18n,
+    theme: &AppTheme,
+    on_open_release: &OpenReleaseHandler,
+) -> impl IntoElement {
+    let colors = theme.semantic.colors;
+    let spacing = theme.semantic.spacing;
+    let typography = &theme.semantic.typography;
+    let url = release.release_url.clone();
+    let callback = on_open_release.clone();
+    div()
+        .id(format!("settings-release-{index}"))
+        .w_full()
+        .min_h(px(30.))
+        .px(spacing.sm)
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(spacing.md)
+        .rounded(theme.semantic.radius.sm)
+        .cursor_pointer()
+        .hover(move |this| this.bg(colors.muted))
+        .on_click(move |_, window, cx| callback(url.clone(), window, cx))
+        .child(
+            div()
+                .text_size(typography.xs.size)
+                .child(release.version.clone()),
+        )
+        .child(
+            div()
+                .text_size(typography.xs.size)
+                .text_color(colors.muted_foreground)
+                .child(
+                    release
+                        .published_at
+                        .as_deref()
+                        .unwrap_or(i18n.text(Message::SettingsOpenRelease))
+                        .to_owned(),
+                ),
+        )
 }
 
 fn plugin_presentation(plugin: PluginId, i18n: &I18n) -> (&'static str, &'static str, Glyph) {

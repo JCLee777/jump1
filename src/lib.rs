@@ -9,6 +9,7 @@ mod plugin;
 mod state;
 mod text_search;
 mod theme;
+mod update;
 
 use app::Jump1Shell;
 use gpui_kit::{component::theme::Theme, *};

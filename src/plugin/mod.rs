@@ -108,6 +108,7 @@ pub enum PluginEvent {
     ImportClipboard(PluginId),
     Settings(SettingsChange),
     SettingsSection(SettingsSection),
+    CheckForUpdates,
     ShortcutBinding(ShortcutBindingEvent),
 }
 

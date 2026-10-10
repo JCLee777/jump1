@@ -31,7 +31,8 @@ main.rs → lib.rs → app.rs
                     ├── plugin/system/
                     │   └── mod.rs
                     ├── state.rs
-                    └── theme.rs
+                    ├── theme.rs
+                    └── update.rs
 ```
 
 - `main.rs`：二进制入口
@@ -55,6 +56,7 @@ main.rs → lib.rs → app.rs
 - `platform.rs`：系统发现、打开操作、输入模拟和登录项管理
 - `plugin/`：插件身份、状态、持久化和各自视图
 - `theme.rs`：语义设计令牌与应用级尺寸
+- `update.rs`：Apple Silicon macOS 的 GitHub Release 查询、更新判断和版本记录解析
 
 `plugin/launcher/search.rs` 不依赖 GPUI，也不执行系统命令。平台差异限制在
 `platform.rs`。
@@ -80,6 +82,10 @@ main.rs → lib.rs → app.rs
 - macOS 使用 AppKit 原生窗口调整尺寸，系统窗口按钮保持隐藏；其他平台使用 GPUI 客户端边框。
 - 产品文案由 `i18n.rs` 按系统语言生成，当前支持简体中文和英文。
 - 业务数据使用 `ResultKind`、`ResultTitle` 等语义类型，不保存翻译后的文本。
+- Apple Silicon macOS 的通用设置从 GitHub Releases 查询版本、展示更新日志和最近版本记录；
+  下载入口指向对应 ARM64 DMG，安装由用户打开 DMG 并替换 Applications 中的应用完成。
+- Release 由 `vMAJOR.MINOR.PATCH` 标签触发；工作流验证 `Cargo.toml` 版本和
+  `CHANGELOG.md` 条目后，仅构建并发布 Apple Silicon macOS DMG。
 
 新增页面不得写死颜色和产品文案。只有无法由语义比例表达的组件尺寸可以加入
 `theme.rs`，且应按用途命名。

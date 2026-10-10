@@ -132,6 +132,25 @@ impl I18n {
             (Locale::ZhCn, Message::LanguageChinese) => "简体中文",
             (Locale::ZhCn, Message::LanguageEnglish) => "English",
             (Locale::ZhCn, Message::SettingsKeyboardHint) => "Esc 返回",
+            (Locale::ZhCn, Message::SettingsUpdatesTitle) => "软件更新",
+            (Locale::ZhCn, Message::SettingsUpdatesDescription) => {
+                "通过 GitHub 查看 Jump1 的新版本、更新日志和版本记录"
+            }
+            (Locale::ZhCn, Message::SettingsCurrentVersion) => "当前版本",
+            (Locale::ZhCn, Message::SettingsCheckForUpdates) => "检查更新",
+            (Locale::ZhCn, Message::SettingsCheckingUpdates) => "正在检查…",
+            (Locale::ZhCn, Message::SettingsNeverChecked) => "尚未检查更新",
+            (Locale::ZhCn, Message::SettingsCheckFailed) => "检查失败",
+            (Locale::ZhCn, Message::SettingsNoReleases) => "GitHub 上还没有已发布的版本",
+            (Locale::ZhCn, Message::SettingsUpToDate) => "当前已是最新版本",
+            (Locale::ZhCn, Message::SettingsUpdateAvailable) => "发现新版本",
+            (Locale::ZhCn, Message::SettingsDownloadUpdate) => "下载更新",
+            (Locale::ZhCn, Message::SettingsReleaseNotes) => "更新日志",
+            (Locale::ZhCn, Message::SettingsVersionHistory) => "版本记录",
+            (Locale::ZhCn, Message::SettingsOpenRelease) => "在 GitHub 查看",
+            (Locale::ZhCn, Message::SettingsUpdateInstallHint) => {
+                "下载后打开 DMG，将 Jump1 拖入 Applications 完成更新"
+            }
             (Locale::ZhCn, Message::ClipboardHistoryLimit) => "历史记录数量",
             (Locale::ZhCn, Message::ClipboardHistoryLimitDescription) => "保存的剪切板条目数量",
             (Locale::ZhCn, Message::RecentApplications) => "最近使用",
@@ -258,6 +277,25 @@ impl I18n {
             (Locale::EnUs, Message::LanguageChinese) => "简体中文",
             (Locale::EnUs, Message::LanguageEnglish) => "English",
             (Locale::EnUs, Message::SettingsKeyboardHint) => "Esc Back",
+            (Locale::EnUs, Message::SettingsUpdatesTitle) => "Software Updates",
+            (Locale::EnUs, Message::SettingsUpdatesDescription) => {
+                "Check Jump1 releases, release notes, and version history on GitHub"
+            }
+            (Locale::EnUs, Message::SettingsCurrentVersion) => "Current version",
+            (Locale::EnUs, Message::SettingsCheckForUpdates) => "Check for updates",
+            (Locale::EnUs, Message::SettingsCheckingUpdates) => "Checking…",
+            (Locale::EnUs, Message::SettingsNeverChecked) => "Updates have not been checked",
+            (Locale::EnUs, Message::SettingsCheckFailed) => "Update check failed",
+            (Locale::EnUs, Message::SettingsNoReleases) => "No published releases on GitHub yet",
+            (Locale::EnUs, Message::SettingsUpToDate) => "You are up to date",
+            (Locale::EnUs, Message::SettingsUpdateAvailable) => "Update available",
+            (Locale::EnUs, Message::SettingsDownloadUpdate) => "Download update",
+            (Locale::EnUs, Message::SettingsReleaseNotes) => "Release notes",
+            (Locale::EnUs, Message::SettingsVersionHistory) => "Version history",
+            (Locale::EnUs, Message::SettingsOpenRelease) => "View on GitHub",
+            (Locale::EnUs, Message::SettingsUpdateInstallHint) => {
+                "Open the DMG and drag Jump1 to Applications to finish the update"
+            }
             (Locale::EnUs, Message::ClipboardHistoryLimit) => "History limit",
             (Locale::EnUs, Message::ClipboardHistoryLimitDescription) => {
                 "Number of clipboard entries to keep"
@@ -493,6 +531,21 @@ pub enum Message {
     LanguageChinese,
     LanguageEnglish,
     SettingsKeyboardHint,
+    SettingsUpdatesTitle,
+    SettingsUpdatesDescription,
+    SettingsCurrentVersion,
+    SettingsCheckForUpdates,
+    SettingsCheckingUpdates,
+    SettingsNeverChecked,
+    SettingsCheckFailed,
+    SettingsNoReleases,
+    SettingsUpToDate,
+    SettingsUpdateAvailable,
+    SettingsDownloadUpdate,
+    SettingsReleaseNotes,
+    SettingsVersionHistory,
+    SettingsOpenRelease,
+    SettingsUpdateInstallHint,
     ClipboardHistoryLimit,
     ClipboardHistoryLimitDescription,
     RecentApplications,
