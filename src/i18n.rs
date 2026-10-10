@@ -47,7 +47,9 @@ impl I18n {
             (Locale::ZhCn, Message::SearchPlaceholder) => "搜索应用、输入路径或网页关键词…",
             (Locale::ZhCn, Message::EmptyResults) => "没有匹配的项目",
             (Locale::ZhCn, Message::OpenSuccess) => "已交给系统打开",
-            (Locale::ZhCn, Message::KeyboardHint) => "↑ ↓ 选择   ·   ↵ 打开   ·   Esc 清空或隐藏",
+            (Locale::ZhCn, Message::KeyboardHint) => {
+                "↑ ↓ ← → 选择   ·   ↵ 打开   ·   Esc 清空或隐藏"
+            }
             (Locale::ZhCn, Message::ClipboardName) => "剪切板",
             (Locale::ZhCn, Message::ClipboardDescription) => {
                 "搜索文本、图片和文件，直接粘贴到原位置"
@@ -179,7 +181,7 @@ impl I18n {
             (Locale::EnUs, Message::EmptyResults) => "No matching items",
             (Locale::EnUs, Message::OpenSuccess) => "Sent to the system",
             (Locale::EnUs, Message::KeyboardHint) => {
-                "↑ ↓ Select   ·   ↵ Open   ·   Esc Clear or Hide"
+                "↑ ↓ ← → Select   ·   ↵ Open   ·   Esc Clear or Hide"
             }
             (Locale::EnUs, Message::ClipboardName) => "Clipboard",
             (Locale::EnUs, Message::ClipboardDescription) => {

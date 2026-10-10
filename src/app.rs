@@ -225,6 +225,13 @@ impl Jump1Shell {
                             shell.move_selection(-1, cx);
                             true
                         }
+                        "left"
+                            if shell.plugins.active() == PluginId::Launcher
+                                && shell.plugins.launcher().query().trim().is_empty() =>
+                        {
+                            shell.move_selection(-1, cx);
+                            true
+                        }
                         "down" => {
                             shell.move_selection(1, cx);
                             true
@@ -237,6 +244,13 @@ impl Jump1Shell {
                                 cx.notify();
                                 true
                             }
+                        }
+                        "right"
+                            if shell.plugins.active() == PluginId::Launcher
+                                && shell.plugins.launcher().query().trim().is_empty() =>
+                        {
+                            shell.move_selection(1, cx);
+                            true
                         }
                         "left"
                             if shell.plugins.active() == PluginId::Clipboard

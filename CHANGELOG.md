@@ -3,6 +3,16 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.3] - 2026-10-10
+
+### 简体中文
+
+- 启动器首页支持使用左右方向键切换选中项目。
+
+### English
+
+- The launcher home screen now supports moving the selection with the left and right arrow keys.
+
 ## [0.1.2] - 2026-10-10
 
 ### 简体中文
