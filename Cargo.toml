@@ -1,0 +1,27 @@
+[package]
+name = "jump1"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "A fast, lightweight desktop launcher and utility toolkit built with Rust and GPUI."
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+chrono = "=0.4.45"
+global-hotkey = "=0.8.0"
+gpui-kit = { version = "=0.7.0", features = ["tree-sitter", "tree-sitter-yaml"] }
+pinyin = "=0.11.0"
+serde = "=1.0.229"
+serde_json = "=1.0.151"
+serde_yaml_ng = "=0.10.0"
+similar = { version = "=3.2.0", default-features = false, features = ["text"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+icns = "=0.5.0"
+objc2 = "=0.6.4"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication", "NSPasteboard", "NSPasteboardItem", "NSWindow", "NSView", "NSButton", "libc"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSString"] }
+plist = "=1.10.1"
+raw-window-handle = "=0.6.2"
+smappservice-rs = "=0.1.3"

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="144" y1="96" x2="880" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#89A8FF"/>
+      <stop offset="0.48" stop-color="#6876EC"/>
+      <stop offset="1" stop-color="#4540B8"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="308" y1="240" x2="716" y2="800" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DCE1FF"/>
+    </linearGradient>
+    <filter id="shadow" x="160" y="152" width="704" height="736" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="28" stdDeviation="30" flood-color="#202060" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="72" y="72" width="880" height="880" rx="218" fill="url(#background)"/>
+  <path d="M160 310C257 171 425 112 593 141C748 168 864 265 922 386C868 276 750 205 620 199C420 190 252 291 172 450C143 418 135 359 160 310Z" fill="#FFFFFF" fill-opacity="0.16"/>
+  <g filter="url(#shadow)" fill="url(#shine)">
+    <rect x="258" y="246" width="214" height="214" rx="68"/>
+    <rect x="552" y="246" width="214" height="214" rx="68" fill-opacity="0.88"/>
+    <rect x="258" y="540" width="214" height="214" rx="68" fill-opacity="0.88"/>
+    <path d="M659 526C684 526 704 546 704 571V601H734C759 601 779 621 779 646C779 671 759 691 734 691H704V721C704 746 684 766 659 766C634 766 614 746 614 721V691H584C559 691 539 671 539 646C539 621 559 601 584 601H614V571C614 546 634 526 659 526Z"/>
+  </g>
+</svg>

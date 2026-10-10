@@ -1,0 +1,13 @@
+/target/
+/dist/
+.DS_Store
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local application data
+.env
+.env.*
