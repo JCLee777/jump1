@@ -3,6 +3,18 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.6] - 2026-10-10
+
+### 简体中文
+
+- 优化剪贴板图片预览速度与缓存管理，离开剪贴板页面后释放图片缓存。
+- 调整设置页布局与主题对比度。
+
+### English
+
+- Improved clipboard image preview speed and cache management, releasing image caches when leaving the clipboard page.
+- Refined settings layout and theme contrast.
+
 ## [0.1.5] - 2026-10-10
 
 ### 简体中文
