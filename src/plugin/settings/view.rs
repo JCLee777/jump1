@@ -19,7 +19,7 @@ use crate::{
         PluginId,
         shortcuts::{ShortcutBinding, ShortcutBindingEvent},
     },
-    theme::{AppTheme, PanelSizePreset},
+    theme::{AccentColor, AppTheme, PanelSizePreset},
     update::{UpdateStatus, is_newer_version},
 };
 
@@ -80,6 +80,20 @@ pub fn render(
         SettingsSection::Shortcuts => "settings-content-shortcuts".to_owned(),
         SettingsSection::Plugin(plugin) => format!("settings-content-{}", plugin.slug()),
     };
+    let (content_title, content_description) = match selected_section {
+        SettingsSection::General => (
+            i18n.text(Message::SettingsGeneral),
+            i18n.text(Message::SettingsGeneralDescription),
+        ),
+        SettingsSection::Shortcuts => (
+            i18n.text(Message::ShortcutBindings),
+            i18n.text(Message::ShortcutBindingsDescription),
+        ),
+        SettingsSection::Plugin(plugin) => {
+            let (title, description, _) = plugin_presentation(plugin, i18n);
+            (title, description)
+        }
+    };
 
     div()
         .size_full()
@@ -113,7 +127,7 @@ pub fn render(
                                 .justify_center()
                                 .rounded(theme.semantic.radius.md)
                                 .cursor_pointer()
-                                .hover(move |this| this.bg(colors.muted))
+                                .hover(move |this| this.bg(theme.materials.hover))
                                 .on_click(move |_, window, cx| on_back(window, cx))
                                 .child(glyph(
                                     Glyph::ArrowLeft,
@@ -187,160 +201,192 @@ pub fn render(
         )
         .child(
             div()
-                .id(content_id)
                 .flex_1()
                 .min_w(px(0.))
                 .h_full()
-                .overflow_y_scroll()
+                .flex()
+                .flex_col()
                 .px(spacing.xl)
-                .py(spacing.xl)
-                .when(selected_section == SettingsSection::General, |this| {
-                    this.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(spacing.lg)
-                            .child(content_heading(
-                                i18n.text(Message::SettingsGeneral),
-                                i18n.text(Message::SettingsGeneralDescription),
-                                theme,
-                            ))
-                            .child(
+                .pt(spacing.xl)
+                .gap(spacing.lg)
+                .child(content_heading(content_title, content_description, theme))
+                .child(
+                    div()
+                        .id(content_id)
+                        .w_full()
+                        .flex_1()
+                        .min_h(px(0.))
+                        .overflow_y_scroll()
+                        .pb(spacing.xl)
+                        .when(selected_section == SettingsSection::General, |this| {
+                            this.child(
                                 div()
-                                    .w_full()
-                                    .rounded(theme.semantic.radius.lg)
-                                    .border_1()
-                                    .border_color(colors.border)
-                                    .bg(theme.materials.surface)
-                                    .child(setting_row(
-                                        i18n.text(Message::SettingsTheme),
-                                        [
-                                            (ThemeChoice::System, i18n.text(Message::ThemeSystem)),
-                                            (ThemeChoice::Light, i18n.text(Message::ThemeLight)),
-                                            (ThemeChoice::Dark, i18n.text(Message::ThemeDark)),
-                                        ],
-                                        system.theme(),
-                                        &on_change,
-                                        theme,
-                                    ))
+                                    .flex()
+                                    .flex_col()
+                                    .gap(spacing.lg)
                                     .child(
                                         div()
-                                            .h(theme.metrics.divider)
-                                            .ml(spacing.lg)
-                                            .bg(colors.border),
-                                    )
-                                    .child(setting_row(
-                                        i18n.text(Message::SettingsLanguage),
-                                        [
-                                            (Locale::ZhCn, i18n.text(Message::LanguageChinese)),
-                                            (Locale::EnUs, i18n.text(Message::LanguageEnglish)),
-                                        ],
-                                        system.locale(),
-                                        &on_change,
-                                        theme,
-                                    ))
-                                    .child(
-                                        div()
-                                            .h(theme.metrics.divider)
-                                            .ml(spacing.lg)
-                                            .bg(colors.border),
-                                    )
-                                    .child(setting_row(
-                                        i18n.text(Message::SettingsPanelSize),
-                                        [
-                                            (
-                                                PanelSizePreset::Small,
-                                                i18n.text(Message::PanelSizeSmall),
-                                            ),
-                                            (
-                                                PanelSizePreset::Medium,
-                                                i18n.text(Message::PanelSizeMedium),
-                                            ),
-                                            (
-                                                PanelSizePreset::Large,
-                                                i18n.text(Message::PanelSizeLarge),
-                                            ),
-                                            (
-                                                PanelSizePreset::Custom,
-                                                i18n.text(Message::PanelSizeCustom),
-                                            ),
-                                        ],
-                                        system.panel_size().preset,
-                                        &on_change,
-                                        theme,
-                                    ))
-                                    .when(
-                                        system.panel_size().preset == PanelSizePreset::Custom,
-                                        |this| {
-                                            this.child(panel_dimensions_row(
-                                                panel_width_input,
-                                                panel_height_input,
-                                                i18n,
+                                            .w_full()
+                                            .rounded(theme.semantic.radius.lg)
+                                            .border_1()
+                                            .border_color(colors.border)
+                                            .bg(theme.materials.surface)
+                                            .child(setting_row(
+                                                i18n.text(Message::SettingsTheme),
+                                                [
+                                                    (
+                                                        ThemeChoice::System,
+                                                        i18n.text(Message::ThemeSystem),
+                                                    ),
+                                                    (
+                                                        ThemeChoice::Light,
+                                                        i18n.text(Message::ThemeLight),
+                                                    ),
+                                                    (
+                                                        ThemeChoice::Dark,
+                                                        i18n.text(Message::ThemeDark),
+                                                    ),
+                                                ],
+                                                system.theme(),
+                                                &on_change,
                                                 theme,
                                             ))
+                                            .child(
+                                                div()
+                                                    .h(theme.metrics.divider)
+                                                    .ml(spacing.lg)
+                                                    .bg(colors.border),
+                                            )
+                                            .child(accent_color_row(
+                                                system.accent_color(),
+                                                i18n,
+                                                &on_change,
+                                                theme,
+                                            ))
+                                            .child(
+                                                div()
+                                                    .h(theme.metrics.divider)
+                                                    .ml(spacing.lg)
+                                                    .bg(colors.border),
+                                            )
+                                            .child(setting_row(
+                                                i18n.text(Message::SettingsLanguage),
+                                                [
+                                                    (
+                                                        Locale::ZhCn,
+                                                        i18n.text(Message::LanguageChinese),
+                                                    ),
+                                                    (
+                                                        Locale::EnUs,
+                                                        i18n.text(Message::LanguageEnglish),
+                                                    ),
+                                                ],
+                                                system.locale(),
+                                                &on_change,
+                                                theme,
+                                            ))
+                                            .child(
+                                                div()
+                                                    .h(theme.metrics.divider)
+                                                    .ml(spacing.lg)
+                                                    .bg(colors.border),
+                                            )
+                                            .child(setting_row(
+                                                i18n.text(Message::SettingsPanelSize),
+                                                [
+                                                    (
+                                                        PanelSizePreset::Small,
+                                                        i18n.text(Message::PanelSizeSmall),
+                                                    ),
+                                                    (
+                                                        PanelSizePreset::Medium,
+                                                        i18n.text(Message::PanelSizeMedium),
+                                                    ),
+                                                    (
+                                                        PanelSizePreset::Large,
+                                                        i18n.text(Message::PanelSizeLarge),
+                                                    ),
+                                                    (
+                                                        PanelSizePreset::Custom,
+                                                        i18n.text(Message::PanelSizeCustom),
+                                                    ),
+                                                ],
+                                                system.panel_size().preset,
+                                                &on_change,
+                                                theme,
+                                            ))
+                                            .when(
+                                                system.panel_size().preset
+                                                    == PanelSizePreset::Custom,
+                                                |this| {
+                                                    this.child(panel_dimensions_row(
+                                                        panel_width_input,
+                                                        panel_height_input,
+                                                        i18n,
+                                                        theme,
+                                                    ))
+                                                },
+                                            )
+                                            .child(
+                                                div()
+                                                    .h(theme.metrics.divider)
+                                                    .ml(spacing.lg)
+                                                    .bg(colors.border),
+                                            )
+                                            .child(boolean_setting_row(
+                                                "settings-launch-at-login",
+                                                i18n.text(Message::SettingsLaunchAtLogin),
+                                                i18n.text(
+                                                    Message::SettingsLaunchAtLoginDescription,
+                                                ),
+                                                system.launch_at_login(),
+                                                SystemChange::LaunchAtLogin,
+                                                &on_change,
+                                                theme,
+                                            )),
+                                    )
+                                    .when(
+                                        cfg!(all(target_os = "macos", target_arch = "aarch64")),
+                                        |this| {
+                                            this.child(update_panel(
+                                                update_status,
+                                                env!("CARGO_PKG_VERSION"),
+                                                i18n,
+                                                theme,
+                                                &on_check_updates,
+                                                &on_open_release,
+                                                &on_download_update,
+                                                &on_install_update,
+                                            ))
                                         },
-                                    )
-                                    .child(
-                                        div()
-                                            .h(theme.metrics.divider)
-                                            .ml(spacing.lg)
-                                            .bg(colors.border),
-                                    )
-                                    .child(boolean_setting_row(
-                                        "settings-launch-at-login",
-                                        i18n.text(Message::SettingsLaunchAtLogin),
-                                        i18n.text(Message::SettingsLaunchAtLoginDescription),
-                                        system.launch_at_login(),
-                                        SystemChange::LaunchAtLogin,
-                                        &on_change,
-                                        theme,
-                                    )),
+                                    ),
                             )
-                            .when(
-                                cfg!(all(target_os = "macos", target_arch = "aarch64")),
-                                |this| {
-                                    this.child(update_panel(
-                                        update_status,
-                                        env!("CARGO_PKG_VERSION"),
-                                        i18n,
-                                        theme,
-                                        &on_check_updates,
-                                        &on_open_release,
-                                        &on_download_update,
-                                        &on_install_update,
-                                    ))
-                                },
-                            ),
-                    )
-                })
-                .when_some(selected_plugin, |this, plugin| {
-                    let (title, description, _) = plugin_presentation(plugin, i18n);
-                    this.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(spacing.lg)
-                            .child(content_heading(title, description, theme))
-                            .children(
-                                plugin_settings
-                                    .into_iter()
-                                    .filter(|setting| setting.plugin == plugin)
-                                    .map(|setting| plugin_setting_row(setting, &on_change, theme)),
-                            ),
-                    )
-                })
-                .when(selected_section == SettingsSection::Shortcuts, |this| {
-                    this.child(shortcut_bindings_panel(
-                        input,
-                        shortcut_bindings,
-                        recording_shortcut,
-                        editing_query,
-                        shortcut_conflicts,
-                        i18n,
-                        theme,
-                        &on_shortcut,
-                    ))
-                }),
+                        })
+                        .when_some(selected_plugin, |this, plugin| {
+                            this.child(
+                                div().flex().flex_col().gap(spacing.lg).children(
+                                    plugin_settings
+                                        .into_iter()
+                                        .filter(|setting| setting.plugin == plugin)
+                                        .map(|setting| {
+                                            plugin_setting_row(setting, &on_change, theme)
+                                        }),
+                                ),
+                            )
+                        })
+                        .when(selected_section == SettingsSection::Shortcuts, |this| {
+                            this.child(shortcut_bindings_panel(
+                                input,
+                                shortcut_bindings,
+                                recording_shortcut,
+                                editing_query,
+                                shortcut_conflicts,
+                                i18n,
+                                theme,
+                                &on_shortcut,
+                            ))
+                        }),
+                ),
         )
         .into_any_element()
 }
@@ -445,7 +491,7 @@ fn update_panel(
                         .text_size(typography.xs.size)
                         .when(!is_busy, |this| {
                             this.cursor_pointer()
-                                .hover(move |this| this.bg(colors.muted))
+                                .hover(move |this| this.bg(theme.materials.hover))
                                 .on_click(move |_, window, cx| check_callback(window, cx))
                         })
                         .child(check_label),
@@ -506,6 +552,7 @@ fn update_panel(
             .items_center()
             .rounded(theme.semantic.radius.md)
             .bg(colors.accent)
+            .text_color(colors.accent_foreground)
             .text_size(typography.xs.size)
             .child(button_label);
         update_button = match button_action {
@@ -648,6 +695,10 @@ fn sidebar_item(
     let spacing = theme.semantic.spacing;
     let typography = &theme.semantic.typography;
     let callback = on_section.clone();
+    let selected_background = theme.materials.selection;
+    let selected_foreground = theme.materials.selection_foreground;
+    let selected_control_background = theme.materials.selection_control;
+    let hover_background = theme.materials.hover;
 
     div()
         .id(id)
@@ -660,11 +711,22 @@ fn sidebar_item(
         .rounded(theme.semantic.radius.md)
         .cursor_pointer()
         .bg(if active {
-            colors.accent
+            selected_background
         } else {
             transparent_black()
         })
-        .hover(move |this| this.bg(colors.muted))
+        .text_color(if active {
+            selected_foreground
+        } else {
+            colors.foreground
+        })
+        .hover(move |this| {
+            this.bg(if active {
+                selected_background
+            } else {
+                hover_background
+            })
+        })
         .on_click(move |_, window, cx| callback(section, window, cx))
         .child(
             div()
@@ -673,11 +735,19 @@ fn sidebar_item(
                 .items_center()
                 .justify_center()
                 .rounded(theme.semantic.radius.md)
-                .bg(colors.primary)
+                .bg(if active {
+                    selected_control_background
+                } else {
+                    theme.materials.control
+                })
                 .child(glyph(
                     icon,
                     theme.metrics.settings_sidebar_icon,
-                    colors.primary_foreground,
+                    if active {
+                        selected_foreground
+                    } else {
+                        colors.primary
+                    },
                 )),
         )
         .child(
@@ -738,7 +808,7 @@ where
 
     div()
         .w_full()
-        .min_h(px(68.))
+        .min_h(theme.metrics.setting_row_height)
         .px(spacing.lg)
         .flex()
         .items_center()
@@ -752,6 +822,89 @@ where
                 .child(title),
         )
         .child(segmented_options(options, selected, on_change, theme))
+}
+
+fn accent_color_row(
+    selected: AccentColor,
+    i18n: &I18n,
+    on_change: &ChangeHandler,
+    theme: &AppTheme,
+) -> impl IntoElement {
+    let colors = theme.semantic.colors;
+    let spacing = theme.semantic.spacing;
+    let typography = &theme.semantic.typography;
+    let options = [
+        (AccentColor::Default, i18n.text(Message::AccentColorDefault)),
+        (AccentColor::Blue, i18n.text(Message::AccentColorBlue)),
+        (AccentColor::Purple, i18n.text(Message::AccentColorPurple)),
+        (AccentColor::Pink, i18n.text(Message::AccentColorPink)),
+        (AccentColor::Orange, i18n.text(Message::AccentColorOrange)),
+        (AccentColor::Green, i18n.text(Message::AccentColorGreen)),
+        (AccentColor::Teal, i18n.text(Message::AccentColorTeal)),
+    ];
+    let selected_label = options
+        .iter()
+        .find(|(accent, _)| *accent == selected)
+        .map(|(_, label)| *label)
+        .unwrap_or(i18n.text(Message::AccentColorDefault));
+
+    div()
+        .w_full()
+        .min_h(theme.metrics.setting_row_height)
+        .px(spacing.lg)
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(spacing.md)
+        .child(
+            div()
+                .text_size(typography.sm.size)
+                .line_height(typography.sm.line_height)
+                .font_weight(FontWeight::MEDIUM)
+                .child(i18n.text(Message::SettingsAccentColor)),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(spacing.xs)
+                .children(options.into_iter().map(|(accent, _label)| {
+                    let active = accent == selected;
+                    let color = accent.color().unwrap_or(colors.muted_foreground);
+                    let callback = on_change.clone();
+                    div()
+                        .id(format!("accent-color-{}", accent.key()))
+                        .size(theme.metrics.accent_swatch_hit_size)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(theme.semantic.radius.full)
+                        .border_1()
+                        .border_color(if active { colors.accent } else { colors.border })
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            callback(
+                                SettingsChange::System(SystemChange::AccentColor(accent)),
+                                window,
+                                cx,
+                            )
+                        })
+                        .child(
+                            div()
+                                .size(theme.metrics.accent_swatch_size)
+                                .rounded(theme.semantic.radius.full)
+                                .bg(color),
+                        )
+                        .into_any_element()
+                }))
+                .child(
+                    div()
+                        .w(theme.metrics.accent_swatch_label_width)
+                        .text_size(typography.xs.size)
+                        .text_color(colors.muted_foreground)
+                        .child(selected_label),
+                ),
+        )
 }
 
 fn panel_dimensions_row(
@@ -888,6 +1041,9 @@ where
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
     let typography = &theme.semantic.typography;
+    let selected_background = theme.materials.selection;
+    let selected_foreground = theme.materials.selection_foreground;
+    let hover_background = theme.materials.hover;
 
     div()
         .flex()
@@ -911,11 +1067,22 @@ where
                 .rounded(theme.semantic.radius.md)
                 .cursor_pointer()
                 .bg(if active {
-                    colors.accent
+                    selected_background
                 } else {
                     transparent_black()
                 })
-                .hover(move |this| this.bg(colors.muted))
+                .text_color(if active {
+                    selected_foreground
+                } else {
+                    colors.foreground
+                })
+                .hover(move |this| {
+                    this.bg(if active {
+                        selected_background
+                    } else {
+                        hover_background
+                    })
+                })
                 .on_click(move |_, window, cx| callback(SettingsChange::from(value), window, cx))
                 .child(
                     div()
@@ -939,6 +1106,9 @@ fn plugin_setting_row(
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
     let typography = &theme.semantic.typography;
+    let selected_background = theme.materials.selection;
+    let selected_foreground = theme.materials.selection_foreground;
+    let hover_background = theme.materials.hover;
     let plugin = setting.plugin;
     let key = setting.key;
 
@@ -1000,11 +1170,22 @@ fn plugin_setting_row(
                         .rounded(theme.semantic.radius.md)
                         .cursor_pointer()
                         .bg(if active {
-                            colors.accent
+                            selected_background
                         } else {
                             transparent_black()
                         })
-                        .hover(move |this| this.bg(colors.muted))
+                        .text_color(if active {
+                            selected_foreground
+                        } else {
+                            colors.foreground
+                        })
+                        .hover(move |this| {
+                            this.bg(if active {
+                                selected_background
+                            } else {
+                                hover_background
+                            })
+                        })
                         .on_click(move |_, window, cx| {
                             callback(
                                 SettingsChange::Plugin {
@@ -1050,11 +1231,6 @@ fn shortcut_bindings_panel(
         .flex()
         .flex_col()
         .gap(spacing.lg)
-        .child(content_heading(
-            i18n.text(Message::ShortcutBindings),
-            i18n.text(Message::ShortcutBindingsDescription),
-            theme,
-        ))
         .child(
             div()
                 .w_full()
@@ -1126,7 +1302,7 @@ fn shortcut_bindings_panel(
                 .border_1()
                 .border_color(colors.border)
                 .cursor_pointer()
-                .hover(move |this| this.bg(colors.muted))
+                .hover(move |this| this.bg(theme.materials.hover))
                 .on_click(move |_, window, cx| add_handler(ShortcutBindingEvent::Add, window, cx))
                 .child(i18n.text(Message::ShortcutBindingAdd)),
         )
@@ -1280,7 +1456,7 @@ fn shortcut_binding_row(
                 .rounded(theme.semantic.radius.md)
                 .cursor_pointer()
                 .text_color(colors.muted_foreground)
-                .hover(move |this| this.bg(colors.muted).text_color(colors.foreground))
+                .hover(move |this| this.bg(theme.materials.hover).text_color(colors.foreground))
                 .on_click(move |_, window, cx| {
                     remove_handler(ShortcutBindingEvent::Remove(id), window, cx)
                 })

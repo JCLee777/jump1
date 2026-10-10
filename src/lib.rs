@@ -14,6 +14,7 @@ mod update;
 use app::Jump1Shell;
 use gpui_kit::{component::theme::Theme, *};
 use plugin::system::ThemeChoice;
+use theme::{AccentColor, apply_accent_color};
 
 pub fn run() {
     application()
@@ -51,7 +52,11 @@ pub fn run() {
                     #[cfg(target_os = "macos")]
                     platform::hide_window_controls(window);
                     Theme::sync_system_appearance(Some(window), cx);
-                    cx.new(|cx| Jump1Shell::new(previous_application, window, cx))
+                    let shell = cx.new(|cx| Jump1Shell::new(previous_application, window, cx));
+                    if preferences.accent_color != AccentColor::Default {
+                        apply_accent_color(preferences.accent_color, cx);
+                    }
+                    shell
                 },
             )
             .expect("failed to open Jump1 window");

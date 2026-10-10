@@ -160,6 +160,7 @@ impl PluginManager {
         let settings = SettingsPlugin::new();
         let system = SystemPlugin::new(
             preferences.theme,
+            preferences.accent_color,
             preferences.locale,
             crate::platform::launch_at_login_enabled(),
             preferences.panel_size,
@@ -511,6 +512,11 @@ impl PluginManager {
                     self.save_system_preferences();
                     vec![HostEffect::ApplyTheme(*theme)]
                 }
+                crate::plugin::system::SystemChange::AccentColor(accent) => {
+                    self.system.apply(*change);
+                    self.save_system_preferences();
+                    vec![HostEffect::ApplyAccentColor(*accent)]
+                }
                 crate::plugin::system::SystemChange::Locale(locale) => {
                     self.system.apply(*change);
                     self.save_system_preferences();
@@ -557,6 +563,7 @@ impl PluginManager {
     fn save_system_preferences(&self) {
         crate::state::Preferences {
             theme: self.system.theme(),
+            accent_color: self.system.accent_color(),
             locale: self.system.locale(),
             panel_size: self.system.panel_size(),
         }

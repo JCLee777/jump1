@@ -3,7 +3,11 @@
 use std::path::PathBuf;
 
 use super::PluginId;
-use crate::{i18n::Locale, plugin::system::ThemeChoice, theme::PanelSize};
+use crate::{
+    i18n::Locale,
+    plugin::system::ThemeChoice,
+    theme::{AccentColor, PanelSize},
+};
 
 #[derive(Clone, Debug)]
 pub struct ApplicationEntry {
@@ -65,6 +69,7 @@ pub enum ResultDetail {
 
 pub enum HostEffect {
     ApplyTheme(ThemeChoice),
+    ApplyAccentColor(AccentColor),
     ApplyLocale(Locale),
     ResizePanel(PanelSize),
     LaunchAtLogin(Result<bool, String>),

@@ -2,7 +2,7 @@
 
 use crate::{
     i18n::Locale,
-    theme::{PanelSize, PanelSizePreset},
+    theme::{AccentColor, PanelSize, PanelSizePreset},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -15,6 +15,7 @@ pub enum ThemeChoice {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SystemChange {
     Theme(ThemeChoice),
+    AccentColor(AccentColor),
     Locale(Locale),
     LaunchAtLogin(bool),
     PanelSizePreset(PanelSizePreset),
@@ -23,6 +24,7 @@ pub enum SystemChange {
 
 pub struct SystemPlugin {
     theme: ThemeChoice,
+    accent_color: AccentColor,
     locale: Locale,
     launch_at_login: bool,
     panel_size: PanelSize,
@@ -43,12 +45,14 @@ impl crate::plugin::api::Plugin for SystemPlugin {
 impl SystemPlugin {
     pub fn new(
         theme: ThemeChoice,
+        accent_color: AccentColor,
         locale: Locale,
         launch_at_login: bool,
         panel_size: PanelSize,
     ) -> Self {
         Self {
             theme,
+            accent_color,
             locale,
             launch_at_login,
             panel_size: panel_size.normalized(),
@@ -57,6 +61,9 @@ impl SystemPlugin {
 
     pub fn theme(&self) -> ThemeChoice {
         self.theme
+    }
+    pub fn accent_color(&self) -> AccentColor {
+        self.accent_color
     }
     pub fn locale(&self) -> Locale {
         self.locale
@@ -71,6 +78,7 @@ impl SystemPlugin {
     pub fn apply(&mut self, change: SystemChange) {
         match change {
             SystemChange::Theme(theme) => self.theme = theme,
+            SystemChange::AccentColor(accent_color) => self.accent_color = accent_color,
             SystemChange::Locale(locale) => self.locale = locale,
             SystemChange::LaunchAtLogin(enabled) => self.launch_at_login = enabled,
             SystemChange::PanelSizePreset(preset) => self.panel_size.preset = preset,

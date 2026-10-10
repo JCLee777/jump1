@@ -6,12 +6,13 @@ use crate::{
     i18n::Locale,
     platform,
     plugin::system::ThemeChoice,
-    theme::{PanelSize, PanelSizePreset},
+    theme::{AccentColor, PanelSize, PanelSizePreset},
 };
 
 #[derive(Clone, Copy)]
 pub struct Preferences {
     pub theme: ThemeChoice,
+    pub accent_color: AccentColor,
     pub locale: Locale,
     pub panel_size: PanelSize,
 }
@@ -20,6 +21,7 @@ impl Preferences {
     pub fn load() -> Self {
         let mut preferences = Self {
             theme: ThemeChoice::System,
+            accent_color: AccentColor::Default,
             locale: Locale::from_environment(),
             panel_size: PanelSize::default(),
         };
@@ -34,6 +36,11 @@ impl Preferences {
                 continue;
             };
             match (key, value) {
+                ("accent_color", value) => {
+                    if let Some(accent) = AccentColor::parse(value) {
+                        preferences.accent_color = accent;
+                    }
+                }
                 ("theme", "system") => preferences.theme = ThemeChoice::System,
                 ("theme", "light") => preferences.theme = ThemeChoice::Light,
                 ("theme", "dark") => preferences.theme = ThemeChoice::Dark,
@@ -78,12 +85,13 @@ impl Preferences {
             Locale::ZhCn => "zh-CN",
             Locale::EnUs => "en-US",
         };
+        let accent_color = self.accent_color.key();
         let panel_size = self.panel_size.normalized();
         let temporary = path.with_extension("tmp");
         if fs::write(
             &temporary,
             format!(
-                "version=2\ntheme={theme}\nlocale={locale}\npanel_size={}\npanel_width={}\npanel_height={}\n",
+                "version=3\ntheme={theme}\naccent_color={accent_color}\nlocale={locale}\npanel_size={}\npanel_width={}\npanel_height={}\n",
                 panel_size.preset.key(),
                 panel_size.custom_width,
                 panel_size.custom_height,

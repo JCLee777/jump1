@@ -112,7 +112,7 @@ fn result_row(
     theme: &AppTheme,
     on_activate: ActivateHandler,
 ) -> impl IntoElement {
-    let icon = result_icon(&result, theme);
+    let icon = result_icon(&result, selected, theme);
     let title = i18n.result_title(&result.title);
     let detail = i18n.result_detail(&result.detail);
     let kind = i18n.result_kind(result.kind);
@@ -166,7 +166,10 @@ fn recent_card(
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
     let typography = &theme.semantic.typography;
-    let icon = result_icon(&result, theme);
+    let selected_background = theme.materials.selection;
+    let selected_foreground = theme.materials.selection_foreground;
+    let hover_background = theme.materials.hover;
+    let icon = result_icon(&result, selected, theme);
     let title = i18n.result_title(&result.title);
     let action = result.action;
 
@@ -183,11 +186,22 @@ fn recent_card(
         .rounded(theme.semantic.radius.md)
         .cursor_pointer()
         .bg(if selected {
-            colors.accent
+            selected_background
         } else {
             theme.materials.surface
         })
-        .hover(move |this| this.bg(colors.muted))
+        .text_color(if selected {
+            selected_foreground
+        } else {
+            colors.foreground
+        })
+        .hover(move |this| {
+            this.bg(if selected {
+                selected_background
+            } else {
+                hover_background
+            })
+        })
         .on_click(move |_, window, cx| on_activate(action.clone(), window, cx))
         .child(icon)
         .child(
@@ -201,8 +215,13 @@ fn recent_card(
         )
 }
 
-fn result_icon(result: &SearchResult, theme: &AppTheme) -> AnyElement {
+fn result_icon(result: &SearchResult, selected: bool, theme: &AppTheme) -> AnyElement {
     let colors = theme.semantic.colors;
+    let icon_color = if selected {
+        theme.materials.selection_foreground
+    } else {
+        colors.primary
+    };
     let fallback_glyph = match result.kind {
         ResultKind::Application | ResultKind::RecentApplication => Glyph::Application,
         ResultKind::Path | ResultKind::QuickAction => Glyph::Folder,
@@ -217,7 +236,7 @@ fn result_icon(result: &SearchResult, theme: &AppTheme) -> AnyElement {
     if let Some(path) = result.icon_path.clone() {
         let fallback_size = theme.metrics.result_icon;
         let image_size = theme.metrics.application_icon;
-        let fallback_color = colors.primary;
+        let fallback_color = icon_color;
         img(path)
             .size(image_size)
             .with_loading(move || {
@@ -228,7 +247,7 @@ fn result_icon(result: &SearchResult, theme: &AppTheme) -> AnyElement {
             })
             .into_any_element()
     } else {
-        glyph(fallback_glyph, theme.metrics.result_icon, colors.primary).into_any_element()
+        glyph(fallback_glyph, theme.metrics.result_icon, icon_color).into_any_element()
     }
 }
 
@@ -248,7 +267,7 @@ fn search_input(input: &Entity<InputState>, theme: &AppTheme) -> impl IntoElemen
         .child(glyph(
             Glyph::Search,
             theme.metrics.search_icon,
-            colors.primary,
+            colors.muted_foreground,
         ))
         .child(
             div()
@@ -302,9 +321,7 @@ fn status_bar(status: String, keyboard_hint: &'static str, theme: &AppTheme) -> 
                 .px(theme.semantic.spacing.sm)
                 .py(theme.semantic.spacing.xxs)
                 .rounded(theme.semantic.radius.md)
-                .border_1()
-                .border_color(colors.border)
-                .bg(theme.materials.surface)
+                .bg(theme.materials.control)
                 .child(keyboard_hint),
         )
 }
@@ -322,6 +339,11 @@ fn result_row_shell(
     let spacing = theme.semantic.spacing;
     let radius = theme.semantic.radius;
     let typography = &theme.semantic.typography;
+    let selected_background = theme.materials.selection;
+    let selected_foreground = theme.materials.selection_foreground;
+    let selected_control_background = theme.materials.selection_control;
+    let hover_background = theme.materials.hover;
+    let control_background = theme.materials.control;
 
     div()
         .id(format!("launcher-result-{index}"))
@@ -335,11 +357,22 @@ fn result_row_shell(
         .py(spacing.sm)
         .cursor_pointer()
         .bg(if selected {
-            colors.accent
+            selected_background
         } else {
-            theme.materials.window
+            theme.materials.surface
         })
-        .hover(move |this| this.bg(colors.muted))
+        .text_color(if selected {
+            selected_foreground
+        } else {
+            colors.foreground
+        })
+        .hover(move |this| {
+            this.bg(if selected {
+                selected_background
+            } else {
+                hover_background
+            })
+        })
         .child(
             div()
                 .size(theme.metrics.result_icon_box)
@@ -347,7 +380,11 @@ fn result_row_shell(
                 .items_center()
                 .justify_center()
                 .rounded(radius.md)
-                .bg(theme.materials.surface)
+                .bg(if selected {
+                    selected_control_background
+                } else {
+                    control_background
+                })
                 .child(icon),
         )
         .child(
@@ -369,7 +406,11 @@ fn result_row_shell(
                     div()
                         .text_size(typography.xs.size)
                         .line_height(typography.xs.line_height)
-                        .text_color(colors.muted_foreground)
+                        .text_color(if selected {
+                            selected_foreground
+                        } else {
+                            colors.muted_foreground
+                        })
                         .text_ellipsis()
                         .child(detail),
                 ),
@@ -379,12 +420,18 @@ fn result_row_shell(
                 .px(spacing.sm)
                 .py(spacing.xxs)
                 .rounded(radius.md)
-                .border_1()
-                .border_color(colors.border)
-                .bg(theme.materials.surface)
+                .bg(if selected {
+                    selected_control_background
+                } else {
+                    control_background
+                })
                 .text_size(typography.xs.size)
                 .line_height(typography.xs.line_height)
-                .text_color(colors.muted_foreground)
+                .text_color(if selected {
+                    selected_foreground
+                } else {
+                    colors.muted_foreground
+                })
                 .child(kind),
         )
 }

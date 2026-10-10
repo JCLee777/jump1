@@ -119,7 +119,7 @@ pub fn render(
                                 .justify_center()
                                 .rounded(theme.semantic.radius.md)
                                 .cursor_pointer()
-                                .hover(move |this| this.bg(colors.muted))
+                                .hover(move |this| this.bg(theme.materials.hover))
                                 .on_click(move |_, window, cx| on_back(window, cx))
                                 .child(glyph(
                                     Glyph::ArrowLeft,
@@ -157,7 +157,8 @@ pub fn render(
                                 .cursor_pointer()
                                 .text_size(typography.xs.size)
                                 .text_color(colors.muted_foreground)
-                                .hover(move |this| this.bg(colors.muted))
+                                .bg(theme.materials.control)
+                                .hover(move |this| this.bg(theme.materials.hover))
                                 .on_click(move |_, window, cx| on_clear(window, cx))
                                 .child(i18n.text(Message::ClipboardClear)),
                         ),
@@ -340,6 +341,11 @@ fn clipboard_row(
     let spacing = theme.semantic.spacing;
     let radius = theme.semantic.radius;
     let typography = &theme.semantic.typography;
+    let selected_background = theme.materials.selection;
+    let selected_foreground = theme.materials.selection_foreground;
+    let selected_control_background = theme.materials.selection_control;
+    let hover_background = theme.materials.hover;
+    let control_background = theme.materials.control;
     let title = entry_title(&entry);
     let detail =
         i18n.clipboard_entry_detail(entry.content.size(), entry.captured_at, entry.use_count);
@@ -358,15 +364,20 @@ fn clipboard_row(
         .py(spacing.sm)
         .cursor_pointer()
         .bg(if selected {
-            colors.accent
+            selected_background
         } else {
-            theme.materials.window
+            theme.materials.surface
+        })
+        .text_color(if selected {
+            selected_foreground
+        } else {
+            colors.foreground
         })
         .hover(move |this| {
             this.bg(if selected {
-                colors.accent
+                selected_background
             } else {
-                colors.muted
+                hover_background
             })
         })
         .on_click(move |_, window, cx| on_activate(index, window, cx))
@@ -377,8 +388,20 @@ fn clipboard_row(
                 .items_center()
                 .justify_center()
                 .rounded(radius.md)
-                .bg(theme.materials.surface)
-                .child(glyph(icon, theme.metrics.result_icon, colors.primary)),
+                .bg(if selected {
+                    selected_control_background
+                } else {
+                    control_background
+                })
+                .child(glyph(
+                    icon,
+                    theme.metrics.result_icon,
+                    if selected {
+                        selected_foreground
+                    } else {
+                        colors.primary
+                    },
+                )),
         )
         .child(
             div()
@@ -399,7 +422,11 @@ fn clipboard_row(
                     div()
                         .text_size(typography.xs.size)
                         .line_height(typography.xs.line_height)
-                        .text_color(colors.muted_foreground)
+                        .text_color(if selected {
+                            selected_foreground
+                        } else {
+                            colors.muted_foreground
+                        })
                         .text_ellipsis()
                         .child(detail),
                 ),
@@ -409,9 +436,17 @@ fn clipboard_row(
                 .px(spacing.sm)
                 .py(spacing.xxs)
                 .rounded(radius.sm)
-                .bg(theme.materials.surface)
+                .bg(if selected {
+                    selected_control_background
+                } else {
+                    control_background
+                })
                 .text_size(typography.xs.size)
-                .text_color(colors.muted_foreground)
+                .text_color(if selected {
+                    selected_foreground
+                } else {
+                    colors.muted_foreground
+                })
                 .child(format_label),
         )
 }
@@ -424,6 +459,8 @@ fn sort_tabs(
 ) -> impl IntoElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
+    let selected_background = theme.materials.selection;
+    let hover_background = theme.materials.hover;
     div().flex().gap(spacing.xs).children(
         [
             (
@@ -445,14 +482,21 @@ fn sort_tabs(
                 .rounded(theme.semantic.radius.md)
                 .cursor_pointer()
                 .bg(if mode == selected {
-                    colors.accent
+                    selected_background
                 } else {
-                    theme.materials.surface
+                    transparent_black()
                 })
                 .text_color(if mode == selected {
-                    colors.primary
+                    theme.materials.selection_foreground
                 } else {
                     colors.muted_foreground
+                })
+                .hover(move |this| {
+                    this.bg(if mode == selected {
+                        selected_background
+                    } else {
+                        hover_background
+                    })
                 })
                 .on_click(move |_, window, cx| handler(mode, window, cx))
                 .child(label)
@@ -522,7 +566,7 @@ fn search_input(input: &Entity<InputState>, theme: &AppTheme) -> impl IntoElemen
         .child(glyph(
             Glyph::Search,
             theme.metrics.search_icon,
-            colors.primary,
+            colors.muted_foreground,
         ))
         .child(
             div()
@@ -561,9 +605,7 @@ fn status_bar(status: String, keyboard_hint: &'static str, theme: &AppTheme) -> 
                 .px(theme.semantic.spacing.sm)
                 .py(theme.semantic.spacing.xxs)
                 .rounded(theme.semantic.radius.md)
-                .border_1()
-                .border_color(colors.border)
-                .bg(theme.materials.surface)
+                .bg(theme.materials.control)
                 .child(keyboard_hint),
         )
 }

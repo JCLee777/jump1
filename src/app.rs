@@ -22,8 +22,8 @@ use crate::{
     },
     state::Preferences,
     theme::{
-        AppTheme, MAX_PANEL_HEIGHT, MAX_PANEL_WIDTH, MIN_PANEL_HEIGHT, MIN_PANEL_WIDTH,
-        PanelSizePreset,
+        AccentColor, AppTheme, MAX_PANEL_HEIGHT, MAX_PANEL_WIDTH, MIN_PANEL_HEIGHT,
+        MIN_PANEL_WIDTH, PanelSizePreset, apply_accent_color,
     },
     update::UpdateStatus,
 };
@@ -293,8 +293,16 @@ impl Jump1Shell {
                 cx.stop_propagation();
             }
         });
-        let appearance_subscription = cx.observe_window_appearance(window, |_, window, cx| {
-            Theme::sync_system_appearance(Some(window), cx);
+        let appearance_subscription = cx.observe_window_appearance(window, |this, window, cx| {
+            match this.plugins.system().theme() {
+                ThemeChoice::System => Theme::sync_system_appearance(Some(window), cx),
+                ThemeChoice::Light => Theme::change(ThemeMode::Light, None, cx),
+                ThemeChoice::Dark => Theme::change(ThemeMode::Dark, None, cx),
+            }
+            let accent = this.plugins.system().accent_color();
+            if accent != AccentColor::Default {
+                apply_accent_color(accent, cx);
+            }
             cx.notify();
         });
         let activation_subscription = cx.observe_window_activation(window, |_, window, cx| {
@@ -841,11 +849,18 @@ impl Jump1Shell {
         cx: &mut Context<Self>,
     ) {
         match effect {
-            HostEffect::ApplyTheme(ThemeChoice::System) => {
-                Theme::sync_system_appearance(Some(window), cx);
+            HostEffect::ApplyTheme(theme) => {
+                match theme {
+                    ThemeChoice::System => Theme::sync_system_appearance(Some(window), cx),
+                    ThemeChoice::Light => Theme::change(ThemeMode::Light, None, cx),
+                    ThemeChoice::Dark => Theme::change(ThemeMode::Dark, None, cx),
+                }
+                let accent = self.plugins.system().accent_color();
+                if accent != AccentColor::Default {
+                    apply_accent_color(accent, cx);
+                }
             }
-            HostEffect::ApplyTheme(ThemeChoice::Light) => Theme::change(ThemeMode::Light, None, cx),
-            HostEffect::ApplyTheme(ThemeChoice::Dark) => Theme::change(ThemeMode::Dark, None, cx),
+            HostEffect::ApplyAccentColor(accent) => apply_accent_color(accent, cx),
             HostEffect::ApplyLocale(locale) => self.i18n.set_locale(locale),
             HostEffect::ResizePanel(panel_size) => {
                 window.resize(crate::theme::window_size(panel_size));
