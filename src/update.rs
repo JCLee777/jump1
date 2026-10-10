@@ -2,6 +2,16 @@
 
 use std::cmp::Ordering;
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use std::{
+    fs::{self, OpenOptions},
+    io::{Read, Write},
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use crate::i18n::Locale;
 
 #[derive(Clone, Debug)]
@@ -96,6 +106,50 @@ pub enum UpdateStatus {
     Checking,
     Ready(Vec<ReleaseEntry>),
     Failed(String),
+    Downloading {
+        releases: Vec<ReleaseEntry>,
+        version: String,
+    },
+    Downloaded {
+        releases: Vec<ReleaseEntry>,
+        version: String,
+        dmg_path: std::path::PathBuf,
+    },
+    Installing {
+        releases: Vec<ReleaseEntry>,
+        version: String,
+    },
+    DownloadFailed {
+        releases: Vec<ReleaseEntry>,
+        error: String,
+    },
+    InstallFailed {
+        releases: Vec<ReleaseEntry>,
+        version: String,
+        dmg_path: std::path::PathBuf,
+        error: String,
+    },
+}
+
+impl UpdateStatus {
+    pub fn releases(&self) -> Option<&[ReleaseEntry]> {
+        match self {
+            Self::Ready(releases)
+            | Self::Downloading { releases, .. }
+            | Self::Downloaded { releases, .. }
+            | Self::Installing { releases, .. }
+            | Self::DownloadFailed { releases, .. }
+            | Self::InstallFailed { releases, .. } => Some(releases),
+            Self::NotChecked | Self::Checking | Self::Failed(_) => None,
+        }
+    }
+
+    pub fn is_busy(&self) -> bool {
+        matches!(
+            self,
+            Self::Checking | Self::Downloading { .. } | Self::Installing { .. }
+        )
+    }
 }
 
 pub fn is_newer_version(candidate: &str, current: &str) -> bool {
@@ -117,6 +171,270 @@ fn version_parts(version: &str) -> Option<[u64; 3]> {
         parts.next()?.parse().ok()?,
     ])
 }
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, String> {
+    const MAX_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
+    let version_number = version.strip_prefix('v').unwrap_or(version);
+
+    if !is_stable_release_version(version_number) {
+        return Err("更新版本号无效".to_owned());
+    }
+    let release_tag = if version.starts_with('v') {
+        version.to_owned()
+    } else {
+        format!("v{version_number}")
+    };
+    let expected_asset_path = format!(
+        "/JCLee777/jump1/releases/download/{release_tag}/Jump1-{version_number}-aarch64.dmg"
+    );
+    let parsed_url =
+        reqwest::Url::parse(download_url).map_err(|error| format!("更新下载地址无效：{error}"))?;
+    if parsed_url.scheme() != "https"
+        || parsed_url.host_str() != Some("github.com")
+        || parsed_url.path() != expected_asset_path
+        || parsed_url.query().is_some()
+        || parsed_url.fragment().is_some()
+    {
+        return Err("更新下载地址不属于官方 Jump1 Release".to_owned());
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(300))
+        .user_agent(concat!("Jump1/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|error| format!("无法初始化更新下载：{error}"))?;
+    let mut response = client
+        .get(download_url)
+        .send()
+        .map_err(|error| format!("更新下载失败：{error}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("GitHub 下载返回状态码 {status}"));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_DOWNLOAD_BYTES)
+    {
+        return Err("更新安装包超过允许的大小".to_owned());
+    }
+
+    let update_dir = update_directory()?;
+    fs::create_dir_all(&update_dir).map_err(|error| format!("无法创建更新目录：{error}"))?;
+    let final_path = update_dir.join(format!("Jump1-{version_number}-aarch64.dmg"));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("无法生成临时文件名：{error}"))?
+        .as_nanos();
+    let temporary_path = update_dir.join(format!(
+        ".Jump1-{version_number}-{}-{nonce}.download",
+        std::process::id()
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temporary_path)
+        .map_err(|error| format!("无法创建更新文件：{error}"))?;
+
+    let copy_result = (|| {
+        let mut buffer = [0_u8; 64 * 1024];
+        let mut downloaded = 0_u64;
+        loop {
+            let bytes_read = response
+                .read(&mut buffer)
+                .map_err(|error| format!("读取更新数据失败：{error}"))?;
+            if bytes_read == 0 {
+                break;
+            }
+            downloaded = downloaded.saturating_add(bytes_read as u64);
+            if downloaded > MAX_DOWNLOAD_BYTES {
+                return Err("更新安装包超过允许的大小".to_owned());
+            }
+            file.write_all(&buffer[..bytes_read])
+                .map_err(|error| format!("保存更新数据失败：{error}"))?;
+        }
+        if downloaded == 0 {
+            return Err("下载的更新安装包为空".to_owned());
+        }
+        file.sync_all()
+            .map_err(|error| format!("无法保存完整的更新安装包：{error}"))?;
+        Ok(())
+    })();
+    drop(file);
+    if let Err(error) = copy_result {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(error);
+    }
+
+    if final_path.exists() {
+        if let Err(error) = fs::remove_file(&final_path) {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(format!("无法替换旧更新文件：{error}"));
+        }
+    }
+    if let Err(error) = fs::rename(&temporary_path, &final_path) {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(format!("无法完成更新文件保存：{error}"));
+    }
+    Ok(final_path)
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn update_directory() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").ok_or_else(|| "无法读取用户目录".to_owned())?;
+    Ok(PathBuf::from(home)
+        .join("Library")
+        .join("Application Support")
+        .join("Jump1")
+        .join("Updates"))
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub fn install_update_and_restart(dmg_path: &Path, version: &str) -> Result<(), String> {
+    let version_number = version.strip_prefix('v').unwrap_or(version);
+    if !is_stable_release_version(version_number) {
+        return Err("更新版本号无效".to_owned());
+    }
+    let expected_dmg = format!("Jump1-{version_number}-aarch64.dmg");
+    if dmg_path.file_name().and_then(|name| name.to_str()) != Some(&expected_dmg)
+        || !dmg_path.is_file()
+    {
+        return Err("找不到已下载的更新安装包".to_owned());
+    }
+
+    let executable = std::env::current_exe().map_err(|error| format!("无法定位应用：{error}"))?;
+    let app_bundle = executable
+        .ancestors()
+        .nth(3)
+        .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
+        .ok_or_else(|| "请先将 Jump1 安装到 Applications 文件夹".to_owned())?;
+    let info_plist = app_bundle.join("Contents/Info.plist");
+    if !info_plist.is_file() {
+        return Err("当前应用安装位置无效".to_owned());
+    }
+    let parent = app_bundle
+        .parent()
+        .ok_or_else(|| "无法确定应用安装目录".to_owned())?;
+    ensure_directory_writable(parent)?;
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("无法生成安装脚本名：{error}"))?
+        .as_nanos();
+    let script_path =
+        std::env::temp_dir().join(format!("jump1-update-{}-{nonce}.sh", std::process::id()));
+    let mut script = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(&script_path)
+        .map_err(|error| format!("无法准备更新安装器：{error}"))?;
+    script
+        .write_all(UPDATE_INSTALLER_SCRIPT.as_bytes())
+        .and_then(|()| script.sync_all())
+        .map_err(|error| format!("无法保存更新安装器：{error}"))?;
+    drop(script);
+
+    let mut installer = Command::new("/bin/sh");
+    installer
+        .arg(&script_path)
+        .arg(std::process::id().to_string())
+        .arg(dmg_path)
+        .arg(app_bundle)
+        .arg(version_number)
+        .arg(&script_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Err(error) = installer.spawn() {
+        let _ = fs::remove_file(&script_path);
+        return Err(format!("无法启动更新安装器：{error}"));
+    }
+    Ok(())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn ensure_directory_writable(directory: &Path) -> Result<(), String> {
+    let probe = directory.join(format!(".jump1-update-probe-{}", std::process::id()));
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&probe)
+        .map_err(|error| {
+            format!("Jump1 无法写入安装目录，请确认应用位于可写的 Applications 文件夹：{error}")
+        })?;
+    drop(file);
+    fs::remove_file(probe).map_err(|error| format!("无法清理更新检查文件：{error}"))
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const UPDATE_INSTALLER_SCRIPT: &str = r#"#!/bin/sh
+set -eu
+
+process_id="$1"
+dmg_path="$2"
+target_path="$3"
+expected_version="$4"
+script_path="$5"
+parent_dir=${target_path%/*}
+app_name=${target_path##*/}
+mount_point=""
+staging_root=""
+backup_root=""
+old_app_moved=0
+installed_ok=0
+
+cleanup() {
+  result=$?
+  if [ "$result" -ne 0 ] && [ "$installed_ok" -eq 0 ] && [ "$old_app_moved" -eq 1 ] && [ -e "$backup_root/$app_name" ]; then
+    if [ -e "$target_path" ]; then /bin/rm -rf "$target_path" || true; fi
+    if /bin/mv "$backup_root/$app_name" "$target_path"; then old_app_moved=0; fi
+  fi
+  if [ -n "$mount_point" ]; then
+    /usr/bin/hdiutil detach -quiet "$mount_point" >/dev/null 2>&1 || true
+    /bin/rm -rf "$mount_point" || true
+  fi
+  if [ -n "$staging_root" ]; then /bin/rm -rf "$staging_root" || true; fi
+  if [ -n "$backup_root" ] && [ "$old_app_moved" -eq 0 ]; then /bin/rm -rf "$backup_root" || true; fi
+  if [ "$result" -eq 0 ]; then /bin/rm -f "$dmg_path"; fi
+  /bin/rm -f "$script_path"
+  if [ "$result" -ne 0 ]; then
+    if [ -d "$target_path" ]; then /usr/bin/open -a "$target_path" >/dev/null 2>&1 || true; fi
+    /usr/bin/osascript -e 'display dialog "Jump1 could not finish the update. The previous app was restored when possible." buttons {"OK"} with icon caution' >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+while /bin/kill -0 "$process_id" 2>/dev/null; do /bin/sleep 0.2; done
+mount_point=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/jump1-update-mount.XXXXXX")
+staging_root=$(/usr/bin/mktemp -d "$parent_dir/.jump1-update.XXXXXX")
+backup_root=$(/usr/bin/mktemp -d "$parent_dir/.jump1-backup.XXXXXX")
+/usr/bin/hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount_point" "$dmg_path"
+source_app="$mount_point/Jump1.app"
+staged_app="$staging_root/$app_name"
+if [ ! -d "$source_app" ]; then echo "Jump1.app is missing from the update image" >&2; exit 1; fi
+/usr/bin/ditto "$source_app" "$staged_app"
+/usr/bin/codesign --verify --deep --strict "$staged_app"
+bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$staged_app/Contents/Info.plist")
+bundle_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$staged_app/Contents/Info.plist")
+if [ "$bundle_id" != "io.github.jclee777.jump1" ] || [ "$bundle_version" != "$expected_version" ]; then
+  echo "Downloaded app identity or version does not match" >&2
+  exit 1
+fi
+/usr/bin/hdiutil detach -quiet "$mount_point"
+/bin/rm -rf "$mount_point"
+mount_point=""
+/bin/mv "$target_path" "$backup_root/$app_name"
+old_app_moved=1
+/bin/mv "$staged_app" "$target_path"
+if ! /usr/bin/open -a "$target_path"; then echo "Could not relaunch Jump1" >&2; exit 1; fi
+installed_ok=1
+/bin/rm -rf "$backup_root" || true
+backup_root=""
+"#;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub fn fetch_release_history() -> Result<Vec<ReleaseEntry>, String> {

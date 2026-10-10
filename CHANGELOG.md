@@ -3,6 +3,16 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.4] - 2026-10-10
+
+### 简体中文
+
+- 软件更新支持在应用内下载；确认安装后自动替换应用并重新启动。
+
+### English
+
+- Software updates can now be downloaded in the app, then installed after confirmation with an automatic relaunch.
+
 ## [0.1.3] - 2026-10-10
 
 ### 简体中文

@@ -61,9 +61,12 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
   Keep the release asset name `Jump1-MAJOR.MINOR.PATCH-aarch64.dmg` aligned
   between `scripts/package-macos.sh`, the release workflow, and `src/update.rs`.
 - The in-app updater reads the public `JCLee777/jump1` GitHub Releases feed and
-  opens the matching DMG for manual installation. Keep its target gating,
-  download naming, and displayed release history aligned with the published
-  assets; updates are not installed silently.
+  downloads the matching DMG inside the app. The user must select Install and
+  Relaunch before the updater replaces the current app bundle. Restrict
+  downloads to the matching official ARM64 release asset, validate the staged
+  app bundle identity and version, and retain the GitHub release page as a
+  manual fallback. Keep target gating, download naming, and displayed release
+  history aligned with the published assets; never install or relaunch silently.
 - Do not add other release platforms or update feeds without updating this
   policy, the workflow, and the user-facing release documentation together.
 

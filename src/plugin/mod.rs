@@ -109,6 +109,14 @@ pub enum PluginEvent {
     Settings(SettingsChange),
     SettingsSection(SettingsSection),
     CheckForUpdates,
+    DownloadUpdate {
+        version: String,
+        url: String,
+    },
+    InstallUpdate {
+        version: String,
+        dmg_path: std::path::PathBuf,
+    },
     ShortcutBinding(ShortcutBindingEvent),
 }
 

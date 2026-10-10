@@ -33,6 +33,10 @@ pub type ShortcutHandler =
     Rc<dyn for<'a, 'b> Fn(ShortcutBindingEvent, &'a mut Window, &'b mut App)>;
 pub type CheckUpdatesHandler = Rc<dyn for<'a, 'b> Fn(&'a mut Window, &'b mut App)>;
 pub type OpenReleaseHandler = Rc<dyn for<'a, 'b> Fn(String, &'a mut Window, &'b mut App)>;
+pub type DownloadUpdateHandler =
+    Rc<dyn for<'a, 'b> Fn(String, String, &'a mut Window, &'b mut App)>;
+pub type InstallUpdateHandler =
+    Rc<dyn for<'a, 'b> Fn(String, std::path::PathBuf, &'a mut Window, &'b mut App)>;
 
 #[allow(clippy::too_many_arguments)]
 pub fn render(
@@ -55,6 +59,8 @@ pub fn render(
     update_status: &UpdateStatus,
     on_check_updates: CheckUpdatesHandler,
     on_open_release: OpenReleaseHandler,
+    on_download_update: DownloadUpdateHandler,
+    on_install_update: InstallUpdateHandler,
 ) -> AnyElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
@@ -300,6 +306,8 @@ pub fn render(
                                         theme,
                                         &on_check_updates,
                                         &on_open_release,
+                                        &on_download_update,
+                                        &on_install_update,
                                     ))
                                 },
                             ),
@@ -344,14 +352,13 @@ fn update_panel(
     theme: &AppTheme,
     on_check: &CheckUpdatesHandler,
     on_open_release: &OpenReleaseHandler,
+    on_download_update: &DownloadUpdateHandler,
+    on_install_update: &InstallUpdateHandler,
 ) -> impl IntoElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
     let typography = &theme.semantic.typography;
-    let releases = match status {
-        UpdateStatus::Ready(releases) => Some(releases.as_slice()),
-        _ => None,
-    };
+    let releases = status.releases();
     let latest = releases.and_then(|releases| releases.first());
     let has_update =
         latest.is_some_and(|release| is_newer_version(&release.version, current_version));
@@ -370,8 +377,27 @@ fn update_panel(
             Some(_) => i18n.text(Message::SettingsUpToDate).to_owned(),
             None => i18n.text(Message::SettingsNoReleases).to_owned(),
         },
+        UpdateStatus::Downloading { version, .. } => format!(
+            "{}：{version}",
+            i18n.text(Message::SettingsDownloadingUpdate)
+        ),
+        UpdateStatus::Downloaded { version, .. } => format!(
+            "{}：{version}",
+            i18n.text(Message::SettingsUpdateDownloaded)
+        ),
+        UpdateStatus::Installing { version, .. } => format!(
+            "{}：{version}",
+            i18n.text(Message::SettingsInstallingUpdate)
+        ),
+        UpdateStatus::DownloadFailed { error, .. } => {
+            format!("{}: {error}", i18n.text(Message::SettingsDownloadFailed))
+        }
+        UpdateStatus::InstallFailed { error, .. } => {
+            format!("{}: {error}", i18n.text(Message::SettingsInstallFailed))
+        }
     };
     let is_checking = matches!(status, UpdateStatus::Checking);
+    let is_busy = status.is_busy();
     let check_label = if is_checking {
         i18n.text(Message::SettingsCheckingUpdates)
     } else {
@@ -425,10 +451,12 @@ fn update_panel(
                         .border_1()
                         .border_color(colors.border)
                         .bg(theme.materials.window)
-                        .cursor_pointer()
                         .text_size(typography.xs.size)
-                        .hover(move |this| this.bg(colors.muted))
-                        .on_click(move |_, window, cx| check_callback(window, cx))
+                        .when(!is_busy, |this| {
+                            this.cursor_pointer()
+                                .hover(move |this| this.bg(colors.muted))
+                                .on_click(move |_, window, cx| check_callback(window, cx))
+                        })
                         .child(check_label),
                 ),
         )
@@ -455,20 +483,78 @@ fn update_panel(
         );
 
     let panel = if let Some(release) = latest {
-        let url = if has_update {
-            release
-                .download_url
-                .clone()
-                .unwrap_or_else(|| release.release_url.clone())
-        } else {
-            release.release_url.clone()
+        enum UpdateButtonAction {
+            OpenRelease(String),
+            Download(String, String),
+            Install(String, std::path::PathBuf),
+            Disabled,
+        }
+        let (button_label, button_action) = match status {
+            UpdateStatus::Downloading { version, .. } if version == &release.version => (
+                i18n.text(Message::SettingsDownloadingUpdate),
+                UpdateButtonAction::Disabled,
+            ),
+            UpdateStatus::Installing { version, .. } if version == &release.version => (
+                i18n.text(Message::SettingsInstallingUpdate),
+                UpdateButtonAction::Disabled,
+            ),
+            UpdateStatus::Downloaded {
+                version, dmg_path, ..
+            } if version == &release.version => (
+                i18n.text(Message::SettingsInstallUpdate),
+                UpdateButtonAction::Install(version.clone(), dmg_path.clone()),
+            ),
+            UpdateStatus::InstallFailed { .. } => (
+                i18n.text(Message::SettingsOpenRelease),
+                UpdateButtonAction::OpenRelease(release.release_url.clone()),
+            ),
+            _ if has_update && release.download_url.is_some() => (
+                i18n.text(Message::SettingsDownloadUpdate),
+                UpdateButtonAction::Download(
+                    release.version.clone(),
+                    release.download_url.clone().unwrap_or_default(),
+                ),
+            ),
+            _ => (
+                i18n.text(Message::SettingsOpenRelease),
+                UpdateButtonAction::OpenRelease(release.release_url.clone()),
+            ),
         };
-        let button_label = if has_update && release.download_url.is_some() {
-            i18n.text(Message::SettingsDownloadUpdate)
-        } else {
-            i18n.text(Message::SettingsOpenRelease)
+        let mut update_button = div()
+            .id("settings-open-latest-release")
+            .h(px(30.))
+            .px(spacing.sm)
+            .flex()
+            .items_center()
+            .rounded(theme.semantic.radius.md)
+            .bg(colors.accent)
+            .text_size(typography.xs.size)
+            .child(button_label);
+        update_button = match button_action {
+            UpdateButtonAction::OpenRelease(url) => {
+                let callback = on_open_release.clone();
+                update_button
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| callback(url.clone(), window, cx))
+            }
+            UpdateButtonAction::Download(version, url) => {
+                let callback = on_download_update.clone();
+                update_button
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| {
+                        callback(version.clone(), url.clone(), window, cx)
+                    })
+            }
+            UpdateButtonAction::Install(version, dmg_path) => {
+                let callback = on_install_update.clone();
+                update_button
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| {
+                        callback(version.clone(), dmg_path.clone(), window, cx)
+                    })
+            }
+            UpdateButtonAction::Disabled => update_button,
         };
-        let open_callback = on_open_release.clone();
         let panel = panel.child(
             div()
                 .flex()
@@ -488,20 +574,7 @@ fn update_panel(
                         })
                         .child(release.name.clone()),
                 )
-                .child(
-                    div()
-                        .id("settings-open-latest-release")
-                        .h(px(30.))
-                        .px(spacing.sm)
-                        .flex()
-                        .items_center()
-                        .rounded(theme.semantic.radius.md)
-                        .cursor_pointer()
-                        .bg(colors.accent)
-                        .text_size(typography.xs.size)
-                        .on_click(move |_, window, cx| open_callback(url.clone(), window, cx))
-                        .child(button_label),
-                ),
+                .child(update_button),
         );
         let notes = release.notes.for_locale(i18n.locale());
         let panel = if notes.is_empty() {
@@ -529,7 +602,10 @@ fn update_panel(
                         ),
                 )
         };
-        let panel = if has_update && release.download_url.is_some() {
+        let panel = if has_update
+            && release.download_url.is_some()
+            && !matches!(status, UpdateStatus::InstallFailed { .. })
+        {
             panel.child(
                 div()
                     .text_size(typography.xs.size)

@@ -57,7 +57,7 @@ macOS 13 及以上的安装版启动时默认显示面板，失去焦点后隐�
 
 应用版本号以 `Cargo.toml` 为准，版本变更记录维护在 [CHANGELOG.md](CHANGELOG.md)。每个版本的更新说明都应包含简体中文和英文；应用内会根据当前界面语言显示对应内容。发布新版本时，先更新这两处并提交，再推送与版本号一致的 `vMAJOR.MINOR.PATCH` 标签（例如 `v0.2.0`）。GitHub Actions 会校验两种语言的说明，在 Apple Silicon macOS runner 上构建 ARM64 DMG，并将双语变更记录发布到 [GitHub Releases](https://github.com/JCLee777/jump1/releases)。
 
-Apple Silicon Mac 用户可在“设置 → 通用 → 软件更新”检查新版本、查看更新日志和版本记录，并从 GitHub 下载 DMG。下载后打开 DMG，将 Jump1 拖入 Applications 完成更新。其他平台不会显示此更新入口。
+Apple Silicon Mac 用户可在“设置 → 通用 → 软件更新”检查新版本、查看更新日志和版本记录，并在应用内下载 ARM64 安装包。下载完成后点击“安装并重启”，Jump1 会替换当前应用并重新打开；如果当前安装目录不可写，可从 GitHub Releases 手动更新。其他平台不会显示此更新入口。
 
 ## 结构
 

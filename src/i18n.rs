@@ -151,11 +151,17 @@ impl I18n {
             (Locale::ZhCn, Message::SettingsUpToDate) => "当前已是最新版本",
             (Locale::ZhCn, Message::SettingsUpdateAvailable) => "发现新版本",
             (Locale::ZhCn, Message::SettingsDownloadUpdate) => "下载更新",
+            (Locale::ZhCn, Message::SettingsDownloadingUpdate) => "正在下载更新…",
+            (Locale::ZhCn, Message::SettingsUpdateDownloaded) => "更新已下载",
+            (Locale::ZhCn, Message::SettingsInstallUpdate) => "安装并重启",
+            (Locale::ZhCn, Message::SettingsInstallingUpdate) => "正在安装，应用即将重启…",
+            (Locale::ZhCn, Message::SettingsDownloadFailed) => "下载失败",
+            (Locale::ZhCn, Message::SettingsInstallFailed) => "安装失败",
             (Locale::ZhCn, Message::SettingsReleaseNotes) => "更新日志",
             (Locale::ZhCn, Message::SettingsVersionHistory) => "版本记录",
             (Locale::ZhCn, Message::SettingsOpenRelease) => "在 GitHub 查看",
             (Locale::ZhCn, Message::SettingsUpdateInstallHint) => {
-                "下载后打开 DMG，将 Jump1 拖入 Applications 完成更新"
+                "下载完成后点击“安装并重启”，Jump1 会自动替换并重新打开"
             }
             (Locale::ZhCn, Message::ClipboardHistoryLimit) => "历史记录数量",
             (Locale::ZhCn, Message::ClipboardHistoryLimitDescription) => "保存的剪切板条目数量",
@@ -296,11 +302,17 @@ impl I18n {
             (Locale::EnUs, Message::SettingsUpToDate) => "You are up to date",
             (Locale::EnUs, Message::SettingsUpdateAvailable) => "Update available",
             (Locale::EnUs, Message::SettingsDownloadUpdate) => "Download update",
+            (Locale::EnUs, Message::SettingsDownloadingUpdate) => "Downloading update…",
+            (Locale::EnUs, Message::SettingsUpdateDownloaded) => "Update downloaded",
+            (Locale::EnUs, Message::SettingsInstallUpdate) => "Install and Relaunch",
+            (Locale::EnUs, Message::SettingsInstallingUpdate) => "Installing; app will relaunch…",
+            (Locale::EnUs, Message::SettingsDownloadFailed) => "Download failed",
+            (Locale::EnUs, Message::SettingsInstallFailed) => "Installation failed",
             (Locale::EnUs, Message::SettingsReleaseNotes) => "Release notes",
             (Locale::EnUs, Message::SettingsVersionHistory) => "Version history",
             (Locale::EnUs, Message::SettingsOpenRelease) => "View on GitHub",
             (Locale::EnUs, Message::SettingsUpdateInstallHint) => {
-                "Open the DMG and drag Jump1 to Applications to finish the update"
+                "After the download, choose Install and Relaunch. Jump1 will replace itself and reopen"
             }
             (Locale::EnUs, Message::ClipboardHistoryLimit) => "History limit",
             (Locale::EnUs, Message::ClipboardHistoryLimitDescription) => {
@@ -548,6 +560,12 @@ pub enum Message {
     SettingsUpToDate,
     SettingsUpdateAvailable,
     SettingsDownloadUpdate,
+    SettingsDownloadingUpdate,
+    SettingsUpdateDownloaded,
+    SettingsInstallUpdate,
+    SettingsInstallingUpdate,
+    SettingsDownloadFailed,
+    SettingsInstallFailed,
     SettingsReleaseNotes,
     SettingsVersionHistory,
     SettingsOpenRelease,

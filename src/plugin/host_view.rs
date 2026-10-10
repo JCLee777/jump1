@@ -93,6 +93,8 @@ pub fn render(
             let shortcut_handler = section_handler.clone();
             let update_handler = section_handler.clone();
             let release_handler = section_handler.clone();
+            let download_handler = section_handler.clone();
+            let install_handler = section_handler.clone();
             let on_back: settings_view::BackHandler = Rc::new(move |window, cx| {
                 back_handler(PluginEvent::Back, window, cx);
             });
@@ -112,6 +114,14 @@ pub fn render(
             let on_open_release: settings_view::OpenReleaseHandler =
                 Rc::new(move |url, window, cx| {
                     release_handler(PluginEvent::Action(CommandAction::Url(url)), window, cx);
+                });
+            let on_download_update: settings_view::DownloadUpdateHandler =
+                Rc::new(move |version, url, window, cx| {
+                    download_handler(PluginEvent::DownloadUpdate { version, url }, window, cx);
+                });
+            let on_install_update: settings_view::InstallUpdateHandler =
+                Rc::new(move |version, dmg_path, window, cx| {
+                    install_handler(PluginEvent::InstallUpdate { version, dmg_path }, window, cx);
                 });
             settings_view::render(
                 input,
@@ -133,6 +143,8 @@ pub fn render(
                 update_status,
                 on_check_updates,
                 on_open_release,
+                on_download_update,
+                on_install_update,
             )
         }
         PluginId::System | PluginId::Shortcuts => {
