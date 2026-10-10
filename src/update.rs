@@ -43,38 +43,7 @@ fn version_parts(version: &str) -> Option<[u64; 3]> {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub fn fetch_release_history() -> Result<Vec<ReleaseEntry>, String> {
-    use std::process::Command;
-
-    let response = Command::new("/usr/bin/curl")
-        .args([
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--location",
-            "--max-time",
-            "10",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            "X-GitHub-Api-Version: 2022-11-28",
-            "-H",
-            "User-Agent: Jump1",
-            "https://api.github.com/repos/JCLee777/jump1/releases?per_page=10",
-        ])
-        .output()
-        .map_err(|error| format!("无法启动 curl：{error}"))?;
-
-    if !response.status.success() {
-        let detail = String::from_utf8_lossy(&response.stderr).trim().to_owned();
-        return Err(if detail.is_empty() {
-            format!("GitHub 返回状态码 {}", response.status)
-        } else {
-            detail
-        });
-    }
-
-    let releases: Vec<serde_json::Value> = serde_json::from_slice(&response.stdout)
-        .map_err(|error| format!("无法解析 GitHub 版本信息：{error}"))?;
+    let releases = GitHubReleaseClient::new()?.releases()?;
 
     Ok(releases
         .into_iter()
@@ -126,4 +95,44 @@ pub fn fetch_release_history() -> Result<Vec<ReleaseEntry>, String> {
             })
         })
         .collect())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+struct GitHubReleaseClient {
+    client: reqwest::blocking::Client,
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+impl GitHubReleaseClient {
+    fn new() -> Result<Self, String> {
+        use std::time::Duration;
+
+        let client = reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .user_agent(concat!("Jump1/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|error| format!("无法初始化更新客户端：{error}"))?;
+        Ok(Self { client })
+    }
+
+    fn releases(&self) -> Result<Vec<serde_json::Value>, String> {
+        const RELEASES_API: &str =
+            "https://api.github.com/repos/JCLee777/jump1/releases?per_page=10";
+
+        let response = self
+            .client
+            .get(RELEASES_API)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .map_err(|error| format!("GitHub 更新请求失败：{error}"))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("GitHub 返回状态码 {status}"));
+        }
+        serde_json::from_reader(response)
+            .map_err(|error| format!("无法解析 GitHub 版本信息：{error}"))
+    }
 }

@@ -51,6 +51,8 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
 - Publish through GitHub Releases only. Push a `vMAJOR.MINOR.PATCH` tag that
   matches `Cargo.toml`; `.github/workflows/release.yml` validates the tag and
   changelog before publishing. Release notes come from that changelog section.
+- Treat a published release and its tag as immutable. Correct a published build
+  with a new patch version rather than moving its tag or replacing its asset.
 - The supported release target is Apple Silicon macOS (`aarch64-apple-darwin`).
   Keep the release asset name `Jump1-MAJOR.MINOR.PATCH-aarch64.dmg` aligned
   between `scripts/package-macos.sh`, the release workflow, and `src/update.rs`.

@@ -56,13 +56,28 @@ jobs:
       - name: Build ARM64 DMG
         run: CARGO_BUILD_TARGET=aarch64-apple-darwin ./scripts/package-macos.sh
 
+      - name: Skip if this tag was superseded
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_commit="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}^{}" | cut -f 1)"
+          if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "This build was superseded by a newer target for $GITHUB_REF_NAME."
+            exit 0
+          fi
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/Jump1-${version}-aarch64.dmg" \
+          asset="dist/Jump1-${version}-aarch64.dmg"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; published releases are immutable." >&2
+            exit 1
+          fi
+
+          gh release create "$GITHUB_REF_NAME" "$asset" \
             --title "Jump1 $GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             --verify-tag
