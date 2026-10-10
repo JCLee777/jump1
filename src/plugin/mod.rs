@@ -19,7 +19,7 @@ use gpui_kit::{App, ClipboardItem, FocusHandle, Window};
 
 use self::{
     api::{Plugin, PluginKind, PluginLifecycle, PluginManifest},
-    clipboard::ClipboardPlugin,
+    clipboard::{ClipboardPlugin, ClipboardPreviewImageSource},
     json::JsonPlugin,
     launcher::LauncherPlugin,
     protocol::{CommandAction, HostEffect, ResultDetail, ResultKind, ResultTitle, SearchResult},
@@ -229,6 +229,14 @@ impl PluginManager {
         self.clipboard.update_preview_image(index);
     }
 
+    pub(crate) fn track_clipboard_preview_asset(&mut self, source: ClipboardPreviewImageSource) {
+        self.clipboard.track_preview_asset(source);
+    }
+
+    pub fn leave_clipboard_page(&mut self, current_window: Option<&mut Window>, cx: &mut App) {
+        self.clipboard.leave_page(current_window, cx);
+    }
+
     pub fn json(&self) -> &JsonPlugin {
         &self.json
     }
@@ -366,7 +374,7 @@ impl PluginManager {
         }
     }
 
-    pub fn open(&mut self, plugin: PluginId) {
+    pub fn open(&mut self, plugin: PluginId, current_window: Option<&mut Window>, cx: &mut App) {
         if !self.registry.contains(plugin) || self.active == plugin {
             return;
         }
@@ -379,6 +387,9 @@ impl PluginManager {
             Some(PluginLifecycle::Active)
         ) || self.activate_plugin(plugin);
         if ready {
+            if previous == PluginId::Clipboard && plugin != PluginId::Clipboard {
+                self.clipboard.leave_page(current_window, cx);
+            }
             self.active = plugin;
         } else if !self.runs_in_background(previous) {
             let _ = self.activate_plugin(previous);

@@ -32,7 +32,7 @@ pub fn render(
     total_entries: usize,
     sort_mode: ClipboardSortMode,
     preview_open: bool,
-    preview_image: Option<Arc<Image>>,
+    preview_image: Option<Arc<RenderImage>>,
     selected: usize,
     status: Option<String>,
     i18n: &I18n,
@@ -189,7 +189,7 @@ pub fn render(
 fn preview_panel(
     selected: usize,
     entry: &ClipboardEntry,
-    image: Option<Arc<Image>>,
+    image: Option<Arc<RenderImage>>,
     i18n: &I18n,
     theme: &AppTheme,
 ) -> impl IntoElement {
@@ -238,7 +238,7 @@ fn preview_panel(
 
 fn preview_content(
     entry: &ClipboardEntry,
-    image: Option<Arc<Image>>,
+    image: Option<Arc<RenderImage>>,
     i18n: &I18n,
     theme: &AppTheme,
 ) -> AnyElement {
@@ -274,28 +274,20 @@ fn preview_content(
                 .into_any_element()
         }
         ClipboardContent::Image { .. } => image
-            .map(|image| {
-                img(image)
-                    .w_full()
-                    .h(theme.metrics.clipboard_preview_image_height)
-                    .into_any_element()
-            })
-            .unwrap_or_else(|| {
-                glyph(Glyph::Image, theme.metrics.result_icon, colors.primary).into_any_element()
-            }),
+            .map(|image| preview_image(image, theme))
+            .unwrap_or_else(|| empty_image_slot(theme)),
         ClipboardContent::Files(paths) => {
-            let image_path = (paths.len() == 1 && entry.format == ClipboardFormat::Image)
-                .then(|| paths[0].clone());
+            let has_image_preview = paths.len() == 1 && entry.format == ClipboardFormat::Image;
             div()
                 .w_full()
                 .flex()
                 .flex_col()
                 .gap(spacing.md)
-                .when_some(image_path, |this, path| {
+                .when(has_image_preview, |this| {
                     this.child(
-                        img(path)
-                            .w_full()
-                            .h(theme.metrics.clipboard_preview_image_height),
+                        image
+                            .map(|image| preview_image(image, theme))
+                            .unwrap_or_else(|| empty_image_slot(theme)),
                     )
                 })
                 .children(paths.iter().take(100).map(|path| {
@@ -327,6 +319,20 @@ fn preview_content(
                 .into_any_element()
         }
     }
+}
+
+fn preview_image(image: Arc<RenderImage>, theme: &AppTheme) -> AnyElement {
+    img(image)
+        .w_full()
+        .h(theme.metrics.clipboard_preview_image_height)
+        .into_any_element()
+}
+
+fn empty_image_slot(theme: &AppTheme) -> AnyElement {
+    div()
+        .w_full()
+        .h(theme.metrics.clipboard_preview_image_height)
+        .into_any_element()
 }
 
 fn clipboard_row(

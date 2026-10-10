@@ -2,8 +2,14 @@
 
 pub mod view;
 
-use gpui_kit::{ClipboardEntry as SystemEntry, ClipboardItem, ExternalPaths, Image, ImageFormat};
+use gpui_kit::{
+    App, Asset, AssetLogger, ClipboardEntry as SystemEntry, ClipboardItem, ExternalPaths, Image,
+    ImageCacheError, ImageFormat, RenderImage, Window,
+};
+use image::{AnimationDecoder as _, DynamicImage, Frame, ImageDecoder as _};
 use std::{
+    collections::HashSet,
+    hash::{Hash, Hasher},
     io::{Cursor, Read},
     path::{Path, PathBuf},
     sync::Arc,
@@ -15,6 +21,178 @@ use crate::platform::{self, NativeClipboard, NativeClipboardItem, NativeClipboar
 const HISTORY_MAGIC: &[u8; 5] = b"HDCB2";
 const MAX_ENTRY_BYTES: usize = 32 * 1024 * 1024;
 const MAX_DECODED_ENTRIES: usize = 100_000;
+const MAX_PREVIEW_IMAGE_EDGE: u32 = 1024;
+
+#[derive(Clone)]
+pub(crate) enum ClipboardPreviewImageSource {
+    Clipboard {
+        format: ImageFormat,
+        bytes: Arc<[u8]>,
+    },
+    File(PathBuf),
+}
+
+impl PartialEq for ClipboardPreviewImageSource {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Clipboard {
+                    format: left_format,
+                    bytes: left_bytes,
+                },
+                Self::Clipboard {
+                    format: right_format,
+                    bytes: right_bytes,
+                },
+            ) => left_format == right_format && Arc::ptr_eq(left_bytes, right_bytes),
+            (Self::File(left), Self::File(right)) => left == right,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ClipboardPreviewImageSource {}
+
+impl Hash for ClipboardPreviewImageSource {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Clipboard { format, bytes } => {
+                0_u8.hash(state);
+                format.hash(state);
+                bytes.as_ptr().hash(state);
+            }
+            Self::File(path) => {
+                1_u8.hash(state);
+                path.hash(state);
+            }
+        }
+    }
+}
+
+pub(crate) struct ClipboardPreviewImageAsset;
+
+impl Asset for ClipboardPreviewImageAsset {
+    type Source = ClipboardPreviewImageSource;
+    type Output = Result<Arc<RenderImage>, ImageCacheError>;
+
+    fn load(
+        source: Self::Source,
+        cx: &mut App,
+    ) -> impl std::future::Future<Output = Self::Output> + Send + 'static {
+        let svg_renderer = cx.svg_renderer();
+        async move {
+            match source {
+                ClipboardPreviewImageSource::Clipboard { format, bytes } => {
+                    if format == ImageFormat::Svg {
+                        return svg_renderer
+                            .render_single_frame(&bytes, 1.0)
+                            .map_err(Into::into);
+                    }
+                    let Some(format) = raster_image_format(format) else {
+                        return Err(ImageCacheError::Asset(
+                            "Unsupported clipboard image format".into(),
+                        ));
+                    };
+                    decode_preview_image(&bytes, format)
+                }
+                ClipboardPreviewImageSource::File(path) => {
+                    #[cfg(target_os = "macos")]
+                    if let Some((width, height, pixels)) =
+                        platform::decode_image_file_thumbnail(&path, MAX_PREVIEW_IMAGE_EDGE)
+                    {
+                        return render_preview_pixels(width, height, pixels, true);
+                    }
+
+                    let bytes = std::fs::read(path)?;
+                    match image::guess_format(&bytes) {
+                        Ok(format) => decode_preview_image(&bytes, format),
+                        Err(_) => svg_renderer
+                            .render_single_frame(&bytes, 1.0)
+                            .map_err(Into::into),
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn raster_image_format(format: ImageFormat) -> Option<image::ImageFormat> {
+    match format {
+        ImageFormat::Png => Some(image::ImageFormat::Png),
+        ImageFormat::Jpeg => Some(image::ImageFormat::Jpeg),
+        ImageFormat::Webp => Some(image::ImageFormat::WebP),
+        ImageFormat::Gif => Some(image::ImageFormat::Gif),
+        ImageFormat::Bmp => Some(image::ImageFormat::Bmp),
+        ImageFormat::Tiff => Some(image::ImageFormat::Tiff),
+        ImageFormat::Ico => Some(image::ImageFormat::Ico),
+        ImageFormat::Pnm => Some(image::ImageFormat::Pnm),
+        ImageFormat::Svg => None,
+    }
+}
+
+fn decode_preview_image(
+    bytes: &[u8],
+    format: image::ImageFormat,
+) -> Result<Arc<RenderImage>, ImageCacheError> {
+    #[cfg(target_os = "macos")]
+    if let Some((width, height, pixels)) =
+        platform::decode_image_data_thumbnail(bytes, MAX_PREVIEW_IMAGE_EDGE)
+    {
+        return render_preview_pixels(width, height, pixels, true);
+    }
+
+    let image = if format == image::ImageFormat::Gif {
+        let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes))?;
+        let frame = decoder
+            .into_frames()
+            .next()
+            .transpose()?
+            .ok_or_else(|| ImageCacheError::Asset("GIF has no decodable frames".into()))?;
+        DynamicImage::ImageRgba8(frame.into_buffer())
+    } else {
+        let mut decoder =
+            image::ImageReader::with_format(Cursor::new(bytes), format).into_decoder()?;
+        let orientation = decoder.orientation()?;
+        let mut image = DynamicImage::from_decoder(decoder)?;
+        image.apply_orientation(orientation);
+        image
+    };
+
+    let image = if image.width() > MAX_PREVIEW_IMAGE_EDGE || image.height() > MAX_PREVIEW_IMAGE_EDGE
+    {
+        image.thumbnail(MAX_PREVIEW_IMAGE_EDGE, MAX_PREVIEW_IMAGE_EDGE)
+    } else {
+        image
+    };
+    let width = image.width();
+    let height = image.height();
+    let pixels = image.into_rgba8().into_raw();
+    render_preview_pixels(width, height, pixels, false)
+}
+
+fn render_preview_pixels(
+    width: u32,
+    height: u32,
+    bytes: Vec<u8>,
+    premultiplied: bool,
+) -> Result<Arc<RenderImage>, ImageCacheError> {
+    let Some(mut pixels) = image::RgbaImage::from_raw(width, height, bytes) else {
+        return Err(ImageCacheError::Asset(
+            "Invalid decoded clipboard image dimensions".into(),
+        ));
+    };
+    for pixel in pixels.chunks_exact_mut(4) {
+        if premultiplied && pixel[3] > 0 {
+            let alpha = pixel[3] as f32 / 255.0;
+            for channel in &mut pixel[..3] {
+                *channel = (*channel as f32 / alpha).min(255.0) as u8;
+            }
+        }
+        pixel.swap(0, 2);
+    }
+
+    Ok(Arc::new(RenderImage::new(vec![Frame::new(pixels)])))
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClipboardSortMode {
@@ -179,7 +357,8 @@ pub struct ClipboardPlugin {
     history_limit: HistoryLimit,
     sort_mode: ClipboardSortMode,
     preview_open: bool,
-    preview_image: Option<(Arc<[u8]>, Arc<Image>)>,
+    preview_source: Option<ClipboardPreviewImageSource>,
+    preview_assets: HashSet<ClipboardPreviewImageSource>,
     dirty: bool,
     ignored_clipboard: Option<ClipboardContent>,
     last_native_change_count: Option<isize>,
@@ -235,7 +414,8 @@ impl ClipboardPlugin {
             history_limit,
             sort_mode: ClipboardSortMode::Recent,
             preview_open: false,
-            preview_image: None,
+            preview_source: None,
+            preview_assets: HashSet::new(),
             dirty: false,
             ignored_clipboard: None,
             last_native_change_count: None,
@@ -275,6 +455,7 @@ impl ClipboardPlugin {
             return false;
         };
         self.history_limit = limit;
+        self.close_preview();
         self.apply_limit();
         self.persist();
         self.dirty = false;
@@ -291,44 +472,60 @@ impl ClipboardPlugin {
     pub fn preview_open(&self) -> bool {
         self.preview_open
     }
-    pub fn preview_image(&self) -> Option<Arc<Image>> {
-        self.preview_image.as_ref().map(|(_, image)| image.clone())
+    pub(crate) fn preview_source(&self) -> Option<ClipboardPreviewImageSource> {
+        self.preview_source.clone()
     }
     pub fn open_preview(&mut self, index: usize) {
         self.preview_open = index < self.current_entries().len();
         if !self.preview_open {
-            self.preview_image = None;
+            self.preview_source = None;
             return;
         }
         self.update_preview_image(index);
     }
     pub fn close_preview(&mut self) {
         self.preview_open = false;
-        self.preview_image = None;
+        self.preview_source = None;
     }
     pub fn update_preview_image(&mut self, index: usize) {
         if !self.preview_open {
             return;
         }
-        let image = self.current_entries().get(index).and_then(|entry| {
-            if let ClipboardContent::Image { format, bytes, .. } = &entry.content {
-                Some((*format, bytes.clone()))
-            } else {
-                None
-            }
-        });
-        if let Some((format, bytes)) = image {
-            if self
-                .preview_image
-                .as_ref()
-                .is_some_and(|(cached, _)| Arc::ptr_eq(cached, &bytes))
+        let source = self
+            .current_entries()
+            .get(index)
+            .and_then(|entry| match &entry.content {
+                ClipboardContent::Image { format, bytes, .. } => {
+                    Some(ClipboardPreviewImageSource::Clipboard {
+                        format: *format,
+                        bytes: bytes.clone(),
+                    })
+                }
+                ClipboardContent::Files(paths)
+                    if entry.format == ClipboardFormat::Image && paths.len() == 1 =>
+                {
+                    Some(ClipboardPreviewImageSource::File(paths[0].clone()))
+                }
+                _ => None,
+            });
+
+        if source.as_ref() == self.preview_source.as_ref() {
+            return;
+        }
+        self.preview_source = source;
+    }
+    pub(crate) fn track_preview_asset(&mut self, source: ClipboardPreviewImageSource) {
+        self.preview_assets.insert(source);
+    }
+    pub fn leave_page(&mut self, mut current_window: Option<&mut Window>, cx: &mut App) {
+        self.close_preview();
+        for source in self.preview_assets.drain() {
+            if let Some(Ok(image)) =
+                cx.fetch_asset::<AssetLogger<ClipboardPreviewImageAsset>>(&source)
             {
-                return;
+                cx.drop_image(image, current_window.as_deref_mut());
             }
-            let image = Image::from_bytes(format, bytes.to_vec());
-            self.preview_image = Some((bytes.clone(), Arc::new(image)));
-        } else {
-            self.preview_image = None;
+            cx.remove_asset::<AssetLogger<ClipboardPreviewImageAsset>>(&source);
         }
     }
     pub fn sort_mode(&self) -> ClipboardSortMode {

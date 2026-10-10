@@ -33,6 +33,128 @@ pub struct NativeClipboardRepresentation {
     pub data: Vec<u8>,
 }
 
+/// Decode a bounded preview directly from an encoded image without allocating
+/// a full-resolution pixel buffer first.
+#[cfg(target_os = "macos")]
+pub fn decode_image_data_thumbnail(bytes: &[u8], max_edge: u32) -> Option<(u32, u32, Vec<u8>)> {
+    use objc2_core_foundation::{CFData, kCFAllocatorNull};
+    use objc2_image_io::CGImageSource;
+
+    if bytes.is_empty() || max_edge == 0 {
+        return None;
+    }
+    let length = isize::try_from(bytes.len()).ok()?;
+    // The source slice remains alive until the ImageIO source has been dropped.
+    let data =
+        unsafe { CFData::with_bytes_no_copy(None, bytes.as_ptr(), length, kCFAllocatorNull) }?;
+    // ImageIO treats the optional dictionary as typed Core Foundation values.
+    let source = unsafe { CGImageSource::with_data(&data, None) }?;
+    decode_image_source_thumbnail(&source, max_edge)
+}
+
+/// Decode a bounded preview directly from a file URL, avoiding a second copy
+/// of the encoded file in application memory.
+#[cfg(target_os = "macos")]
+pub fn decode_image_file_thumbnail(path: &Path, max_edge: u32) -> Option<(u32, u32, Vec<u8>)> {
+    use objc2_core_foundation::CFURL;
+    use objc2_image_io::CGImageSource;
+
+    if max_edge == 0 {
+        return None;
+    }
+    let url = CFURL::from_file_path(path)?;
+    // No options are passed to source creation, so there are no typed values to validate.
+    let source = unsafe { CGImageSource::with_url(&url, None) }?;
+    decode_image_source_thumbnail(&source, max_edge)
+}
+
+#[cfg(target_os = "macos")]
+fn decode_image_source_thumbnail(
+    source: &objc2_image_io::CGImageSource,
+    max_edge: u32,
+) -> Option<(u32, u32, Vec<u8>)> {
+    use objc2_core_foundation::{
+        CFBoolean, CFDictionary, CFMutableDictionary, CFNumber, CFString, CFType,
+    };
+    use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+    use objc2_core_graphics::{
+        CGBitmapContextCreate, CGColorSpace, CGContext, CGImage, CGImageAlphaInfo,
+        CGImageByteOrderInfo, CGInterpolationQuality,
+    };
+    use objc2_image_io::{
+        kCGImageSourceCreateThumbnailFromImageAlways, kCGImageSourceCreateThumbnailWithTransform,
+        kCGImageSourceThumbnailMaxPixelSize,
+    };
+
+    // No valid image can have a zero frame count; index 0 is the static image
+    // or the first frame of an animated image.
+    if unsafe { source.count() } == 0 {
+        return None;
+    }
+
+    let options = CFMutableDictionary::<CFString, CFType>::empty();
+    let create_thumbnail = CFBoolean::new(true);
+    let apply_orientation = CFBoolean::new(true);
+    let max_pixel_size = CFNumber::new_i32(i32::try_from(max_edge).ok()?);
+    // These keys are exported static CFString constants from ImageIO.
+    let (create_thumbnail_key, transform_key, max_pixel_size_key) = unsafe {
+        (
+            kCGImageSourceCreateThumbnailFromImageAlways,
+            kCGImageSourceCreateThumbnailWithTransform,
+            kCGImageSourceThumbnailMaxPixelSize,
+        )
+    };
+    options.set(create_thumbnail_key, create_thumbnail);
+    options.set(transform_key, apply_orientation);
+    options.set(max_pixel_size_key, &max_pixel_size);
+    let options: &CFDictionary = unsafe { options.cast_unchecked() };
+
+    // The options dictionary contains only the ImageIO keys above with boolean
+    // and numeric values, matching their documented Core Foundation types.
+    let image = unsafe { source.thumbnail_at_index(0, Some(options)) }?;
+    let width = u32::try_from(CGImage::width(Some(&image))).ok()?;
+    let height = u32::try_from(CGImage::height(Some(&image))).ok()?;
+    let row_bytes = usize::try_from(width).ok()?.checked_mul(4)?;
+    let byte_count = row_bytes.checked_mul(usize::try_from(height).ok()?)?;
+    if width == 0 || height == 0 || width.max(height) > max_edge {
+        return None;
+    }
+
+    let color_space = CGColorSpace::new_device_rgb()?;
+    let mut pixels = vec![0_u8; byte_count];
+    let bitmap_info = CGImageAlphaInfo::PremultipliedLast.0 | CGImageByteOrderInfo::Order32Big.0;
+    // The byte slice is sized for the requested 8-bit RGBA bitmap and remains
+    // at a stable address until the bitmap context has been dropped.
+    let context = unsafe {
+        CGBitmapContextCreate(
+            pixels.as_mut_ptr().cast(),
+            width as usize,
+            height as usize,
+            8,
+            row_bytes,
+            Some(&color_space),
+            bitmap_info,
+        )
+    }?;
+    CGContext::set_interpolation_quality(Some(&context), CGInterpolationQuality::High);
+    // Core Graphics' bitmap context has a bottom-left origin; flip the Y axis
+    // so the output buffer uses the top-left row order expected by image::Frame.
+    CGContext::translate_ctm(Some(&context), 0.0, height as f64);
+    CGContext::scale_ctm(Some(&context), 1.0, -1.0);
+    CGContext::draw_image(
+        Some(&context),
+        CGRect::new(
+            CGPoint::new(0.0, 0.0),
+            CGSize::new(width as f64, height as f64),
+        ),
+        Some(&image),
+    );
+
+    drop(context);
+    unsafe { source.remove_cache_at_index(0) };
+    Some((width, height, pixels))
+}
+
 pub fn discover_apps() -> Vec<ApplicationEntry> {
     let mut apps = Vec::new();
 

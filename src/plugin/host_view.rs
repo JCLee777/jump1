@@ -1,6 +1,6 @@
 //! Unified rendering boundary between the application shell and plugin views.
 
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 use gpui_kit::{component::input::InputState, *};
 
@@ -21,6 +21,7 @@ pub fn render(
     panel_height_input: &Entity<InputState>,
     scroll: &ScrollHandle,
     clipboard_scroll: &UniformListScrollHandle,
+    clipboard_preview_image: Option<Arc<RenderImage>>,
     selected: usize,
     status: Option<String>,
     i18n: &I18n,
@@ -73,7 +74,7 @@ pub fn render(
                 plugins.clipboard().len(),
                 plugins.clipboard().sort_mode(),
                 plugins.clipboard().preview_open(),
-                plugins.clipboard().preview_image(),
+                clipboard_preview_image,
                 selected,
                 status,
                 i18n,

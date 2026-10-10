@@ -14,7 +14,9 @@ use crate::{
     i18n::{I18n, Message},
     platform,
     plugin::{
-        PluginCommand, PluginEvent, PluginId, PluginManager, host_view,
+        PluginCommand, PluginEvent, PluginId, PluginManager,
+        clipboard::ClipboardPreviewImageAsset,
+        host_view,
         protocol::{CommandAction, HostEffect},
         settings::SettingsChange,
         shortcuts::ShortcutBindingEvent,
@@ -281,7 +283,7 @@ impl Jump1Shell {
                             } else {
                                 shell.recording_shortcut = None;
                                 shell.editing_shortcut_query = None;
-                                cx.hide();
+                                shell.hide_panel(window, cx);
                             }
                             true
                         }
@@ -305,9 +307,9 @@ impl Jump1Shell {
             }
             cx.notify();
         });
-        let activation_subscription = cx.observe_window_activation(window, |_, window, cx| {
+        let activation_subscription = cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
-                cx.hide();
+                this.hide_panel(window, cx);
             }
         });
 
@@ -688,7 +690,7 @@ impl Jump1Shell {
 
     fn toggle_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if window.is_window_active() {
-            cx.hide();
+            self.hide_panel(window, cx);
             return;
         }
         if let Some(pid) = platform::frontmost_application_pid() {
@@ -735,7 +737,7 @@ impl Jump1Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.plugins.open(PluginId::Launcher);
+        self.plugins.open(PluginId::Launcher, Some(window), cx);
         self.plugins.clear_queries();
         self.plugins.set_query(query.clone());
         self.selected = 0;
@@ -835,7 +837,7 @@ impl Jump1Shell {
     fn show_plugin(&mut self, plugin: PluginId, window: &mut Window, cx: &mut Context<Self>) {
         self.recording_shortcut = None;
         self.editing_shortcut_query = None;
-        self.plugins.open(plugin);
+        self.plugins.open(plugin, Some(window), cx);
         let clipboard_text = cx.read_from_clipboard().and_then(|item| item.text());
         self.plugins
             .prepare_open(plugin, clipboard_text, window, cx);
@@ -910,7 +912,7 @@ impl Jump1Shell {
     fn paste_clipboard_item(
         &mut self,
         selection: crate::plugin::clipboard::ClipboardSelection,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let Some(native) = &selection.native {
@@ -922,8 +924,7 @@ impl Jump1Shell {
             cx.write_to_clipboard(selection.item.clone());
         }
         self.plugins.ignore_clipboard_item(Some(selection.item));
-        self.plugins.close_clipboard_preview();
-        cx.hide();
+        self.hide_panel(window, cx);
         let target_application = self.previous_application;
         if let Some(pid) = target_application {
             if let Err(error) = platform::activate_application(pid) {
@@ -956,10 +957,33 @@ impl Jump1Shell {
         })
         .detach();
     }
+
+    fn hide_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.plugins.active() == PluginId::Clipboard {
+            self.plugins.leave_clipboard_page(Some(window), cx);
+        }
+        cx.hide();
+    }
 }
 
 impl Render for Jump1Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let clipboard_preview_image = if self.plugins.active() == PluginId::Clipboard
+            && self.plugins.clipboard().preview_open()
+        {
+            self.plugins
+                .clipboard()
+                .preview_source()
+                .and_then(|source| {
+                    self.plugins.track_clipboard_preview_asset(source.clone());
+                    window
+                        .use_asset::<AssetLogger<ClipboardPreviewImageAsset>>(&source, cx)
+                        .and_then(Result::ok)
+                })
+        } else {
+            None
+        };
+
         let theme = AppTheme::resolve(cx);
         let shell = cx.entity();
         let on_event: host_view::EventHandler = Rc::new(move |event, window, cx| {
@@ -974,6 +998,7 @@ impl Render for Jump1Shell {
             &self.panel_height_input,
             &self.results_scroll,
             &self.clipboard_results_scroll,
+            clipboard_preview_image,
             self.selected,
             self.status.clone(),
             &self.i18n,
