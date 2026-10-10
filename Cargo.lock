@@ -3589,7 +3589,7 @@ dependencies = [
 
 [[package]]
 name = "jump1"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "global-hotkey",
@@ -3602,6 +3602,7 @@ dependencies = [
  "pinyin",
  "plist",
  "raw-window-handle",
+ "roxmltree 0.21.1",
  "serde",
  "serde_json",
  "serde_yaml_ng",

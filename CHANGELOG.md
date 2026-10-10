@@ -3,6 +3,16 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.2] - 2026-10-10
+
+### 简体中文
+
+- GitHub API 限流或不可用时，自动回退到公开 Releases feed 检查更新。
+
+### English
+
+- Update checks now fall back to the public Releases feed when the GitHub API is rate-limited or unavailable.
+
 ## [0.1.0] - 2026-10-10
 
 ### 简体中文
