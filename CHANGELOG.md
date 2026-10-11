@@ -3,6 +3,18 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.8] - 2026-10-11
+
+### 简体中文
+
+- 打开翻译插件时自动填入剪切板文本，并移除手动读取剪切板按钮。
+- 修复译文内容撑宽输入区的问题，原文和译文输入框现在保持等宽。
+
+### English
+
+- Automatically fills the translation page with clipboard text when opened and removes the manual clipboard button.
+- Prevented translated content from expanding its field, keeping the source and translation inputs the same width.
+
 ## [0.1.7] - 2026-10-11
 
 ### 简体中文

@@ -201,7 +201,6 @@ impl Render for TranslatePage {
         };
         let source_label = i18n.text(Message::TranslateSourceLabel);
         let output_label = i18n.text(Message::TranslateOutputLabel);
-        let read_clipboard = i18n.text(Message::TranslateReadClipboard);
         let translate_label = if matches!(self.status, Some(PageStatus::Working)) {
             i18n.text(Message::TranslateWorking)
         } else {
@@ -220,15 +219,14 @@ impl Render for TranslatePage {
         let status_is_error = matches!(self.status, Some(PageStatus::Failed(_)));
         let result = self.result.clone();
         let on_translate = page.clone();
-        let on_import = page.clone();
         let on_copy = page.clone();
         let copy_event = self.on_event.clone();
         let result_to_copy = result.clone();
         let translate_disabled = matches!(self.status, Some(PageStatus::Working));
         let output_box = div()
             .id("translate-result-output")
-            .w_full()
             .flex_1()
+            .min_w(px(0.))
             .min_h(px(0.))
             .px(spacing.md)
             .py(spacing.sm)
@@ -319,39 +317,12 @@ impl Render for TranslatePage {
                     .flex_col()
                     .gap(spacing.md)
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                div()
-                                    .text_size(typography.xs.size)
-                                    .text_color(colors.primary)
-                                    .child(direction_label),
-                            )
-                            .child(action_button(
-                                "translate-read-clipboard",
-                                read_clipboard,
-                                false,
-                                theme.clone(),
-                                move |window, cx| {
-                                    let clipboard_text =
-                                        cx.read_from_clipboard().and_then(|item| item.text());
-                                    on_import.update(cx, |page, cx| match clipboard_text {
-                                        Some(text) if !text.is_empty() => {
-                                            page.set_source_text(text, window, cx)
-                                        }
-                                        _ => {
-                                            page.status = Some(PageStatus::Failed(
-                                                I18n::new(page.locale)
-                                                    .text(Message::TranslateClipboardEmpty)
-                                                    .to_owned(),
-                                            ));
-                                            cx.notify();
-                                        }
-                                    });
-                                },
-                            )),
+                        div().flex().items_center().child(
+                            div()
+                                .text_size(typography.xs.size)
+                                .text_color(colors.primary)
+                                .child(direction_label),
+                        ),
                     )
                     .child(
                         div()

@@ -658,6 +658,10 @@ impl PluginManager {
             if let Some(text) = clipboard_text {
                 self.yaml.open_with_text(text, window, cx);
             }
+        } else if plugin == PluginId::Translate {
+            if let Some(text) = clipboard_text.filter(|text| !text.trim().is_empty()) {
+                self.translate.import_text(text, window, cx);
+            }
         }
     }
 }
