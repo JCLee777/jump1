@@ -3,6 +3,20 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.7] - 2026-10-11
+
+### 简体中文
+
+- 新增大模型翻译插件，支持中英文自动翻译方向、剪贴板导入和复制译文。
+- 支持配置 OpenAI、DeepSeek 和自定义兼容接口，并可在设置中保存和测试连接。
+- 优化翻译页面布局，原文和译文输入区对齐并随面板高度伸展，翻译操作位于两栏中间。
+
+### English
+
+- Added an AI translation plugin with automatic Chinese and English direction, clipboard import, and copyable results.
+- Added OpenAI, DeepSeek, and custom compatible endpoint settings, with API key saving and connection testing.
+- Refined the translation layout with aligned, resizable source and result fields and a centered translate action.
+
 ## [0.1.6] - 2026-10-10
 
 ### 简体中文

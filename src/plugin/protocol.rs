@@ -50,6 +50,7 @@ pub enum ResultTitle {
     ClipboardPlugin,
     JsonPlugin,
     YamlPlugin,
+    TranslatePlugin,
     SettingsPlugin,
     OpenHome,
     OpenDownloads,
@@ -63,6 +64,7 @@ pub enum ResultDetail {
     ClipboardPlugin,
     JsonPlugin,
     YamlPlugin,
+    TranslatePlugin,
     SettingsPlugin,
     Literal(String),
 }

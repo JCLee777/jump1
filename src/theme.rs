@@ -185,6 +185,7 @@ pub fn window_min_size() -> Size<Pixels> {
     size(px(MIN_PANEL_WIDTH as f32), px(MIN_PANEL_HEIGHT as f32))
 }
 
+#[derive(Clone)]
 pub struct AppTheme {
     pub semantic: SemanticThemeTokens,
     pub materials: Materials,
@@ -202,6 +203,7 @@ impl AppTheme {
     }
 }
 
+#[derive(Clone)]
 pub struct Materials {
     pub window: Hsla,
     pub surface: Hsla,
@@ -242,6 +244,7 @@ fn adjust_lightness(color: Hsla, amount: f32) -> Hsla {
     }
 }
 
+#[derive(Clone)]
 pub struct Metrics {
     pub divider: Pixels,
     pub header_top: Pixels,

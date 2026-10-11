@@ -4,6 +4,7 @@ mod app;
 mod hotkey;
 mod i18n;
 mod icon;
+mod network;
 mod platform;
 mod plugin;
 mod state;

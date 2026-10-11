@@ -11,6 +11,7 @@ pub mod settings;
 pub mod shortcuts;
 pub mod storage;
 pub mod system;
+pub mod translate;
 pub mod yaml;
 
 use std::rc::Rc;
@@ -27,6 +28,7 @@ use self::{
     shortcuts::{ShortcutBindingEvent, ShortcutPlugin},
     storage::PluginStorage,
     system::SystemPlugin,
+    translate::TranslatePlugin,
     yaml::YamlPlugin,
 };
 
@@ -36,6 +38,7 @@ pub enum PluginId {
     Clipboard,
     Json,
     Yaml,
+    Translate,
     Settings,
     System,
     Shortcuts,
@@ -48,6 +51,7 @@ impl PluginId {
             Self::Clipboard => "clipboard",
             Self::Json => "json",
             Self::Yaml => "yaml",
+            Self::Translate => "translate",
             Self::Settings => "settings",
             Self::System => "system",
             Self::Shortcuts => "shortcuts",
@@ -129,6 +133,7 @@ pub struct PluginManager {
     clipboard: ClipboardPlugin,
     json: JsonPlugin,
     yaml: YamlPlugin,
+    translate: TranslatePlugin,
     settings: SettingsPlugin,
     system: SystemPlugin,
     shortcuts: ShortcutPlugin,
@@ -153,6 +158,13 @@ impl PluginManager {
         let yaml = YamlPlugin::load(
             PluginStorage::for_plugin(PluginId::Yaml),
             preferences.locale,
+            on_event.clone(),
+            window,
+            cx,
+        );
+        let translate = TranslatePlugin::load(
+            PluginStorage::for_plugin(PluginId::Translate),
+            preferences.locale,
             on_event,
             window,
             cx,
@@ -171,6 +183,7 @@ impl PluginManager {
         registry.register(clipboard.manifest());
         registry.register(json.manifest());
         registry.register(yaml.manifest());
+        registry.register(translate.manifest());
         registry.register(settings.manifest());
         registry.register(system.manifest());
         registry.register(shortcuts.manifest());
@@ -181,6 +194,7 @@ impl PluginManager {
             clipboard,
             json,
             yaml,
+            translate,
             settings,
             system,
             shortcuts,
@@ -203,6 +217,7 @@ impl PluginManager {
             PluginId::Clipboard => i18n.text(crate::i18n::Message::ClipboardSearchPlaceholder),
             PluginId::Json => i18n.text(crate::i18n::Message::JsonName),
             PluginId::Yaml => i18n.text(crate::i18n::Message::YamlName),
+            PluginId::Translate => i18n.text(crate::i18n::Message::TranslateName),
             PluginId::Settings | PluginId::System | PluginId::Shortcuts => {
                 i18n.text(crate::i18n::Message::SettingsName)
             }
@@ -245,6 +260,10 @@ impl PluginManager {
         &self.yaml
     }
 
+    pub fn translate(&self) -> &TranslatePlugin {
+        &self.translate
+    }
+
     pub fn system(&self) -> &SystemPlugin {
         &self.system
     }
@@ -275,6 +294,7 @@ impl PluginManager {
             PluginId::Clipboard => self.clipboard.set_query(query),
             PluginId::Json => {}
             PluginId::Yaml => {}
+            PluginId::Translate => {}
             PluginId::Settings => {}
             PluginId::System => {}
             PluginId::Shortcuts => {}
@@ -292,6 +312,7 @@ impl PluginManager {
             PluginId::Clipboard => self.clipboard.current_entries().len(),
             PluginId::Json => 0,
             PluginId::Yaml => 0,
+            PluginId::Translate => 0,
             PluginId::Settings => 0,
             PluginId::System => 0,
             PluginId::Shortcuts => 0,
@@ -345,6 +366,17 @@ impl PluginManager {
                 action: CommandAction::OpenPlugin(PluginId::Yaml),
             });
         }
+        if self.registry.contains(PluginId::Translate)
+            && TranslatePlugin::matches_launcher_query(self.launcher.query())
+        {
+            plugin_results.push(SearchResult {
+                title: ResultTitle::TranslatePlugin,
+                detail: ResultDetail::TranslatePlugin,
+                kind: ResultKind::Plugin,
+                icon_path: None,
+                action: CommandAction::OpenPlugin(PluginId::Translate),
+            });
+        }
         let insertion = results
             .iter()
             .position(|result| result.kind == ResultKind::Web)
@@ -368,6 +400,7 @@ impl PluginManager {
                 .unwrap_or(PluginCommand::None),
             PluginId::Json => PluginCommand::None,
             PluginId::Yaml => PluginCommand::None,
+            PluginId::Translate => PluginCommand::None,
             PluginId::Settings => PluginCommand::None,
             PluginId::System => PluginCommand::None,
             PluginId::Shortcuts => PluginCommand::None,
@@ -408,6 +441,7 @@ impl PluginManager {
             PluginId::Clipboard,
             PluginId::Json,
             PluginId::Yaml,
+            PluginId::Translate,
             PluginId::Settings,
             PluginId::System,
             PluginId::Shortcuts,
@@ -417,6 +451,7 @@ impl PluginManager {
                 PluginId::Clipboard => self.clipboard.on_load(),
                 PluginId::Json => self.json.on_load(),
                 PluginId::Yaml => self.yaml.on_load(),
+                PluginId::Translate => self.translate.on_load(),
                 PluginId::Settings => self.settings.on_load(),
                 PluginId::System => self.system.on_load(),
                 PluginId::Shortcuts => self.shortcuts.on_load(),
@@ -437,6 +472,7 @@ impl PluginManager {
             PluginId::Clipboard => self.clipboard.on_activate(),
             PluginId::Json => self.json.on_activate(),
             PluginId::Yaml => self.yaml.on_activate(),
+            PluginId::Translate => self.translate.on_activate(),
             PluginId::Settings => self.settings.on_activate(),
             PluginId::System => self.system.on_activate(),
             PluginId::Shortcuts => self.shortcuts.on_activate(),
@@ -452,6 +488,7 @@ impl PluginManager {
             PluginId::Clipboard => self.clipboard.on_suspend(),
             PluginId::Json => self.json.on_suspend(),
             PluginId::Yaml => self.yaml.on_suspend(),
+            PluginId::Translate => self.translate.on_suspend(),
             PluginId::Settings => self.settings.on_suspend(),
             PluginId::System => self.system.on_suspend(),
             PluginId::Shortcuts => self.shortcuts.on_suspend(),
@@ -585,6 +622,7 @@ impl PluginManager {
         match self.active {
             PluginId::Json => Some(self.json.focus_handle(cx)),
             PluginId::Yaml => Some(self.yaml.focus_handle(cx)),
+            PluginId::Translate => Some(self.translate.focus_handle(cx)),
             _ => None,
         }
     }
@@ -600,6 +638,8 @@ impl PluginManager {
             self.json.import_text(text, window, cx);
         } else if plugin == PluginId::Yaml {
             self.yaml.import_text(text, window, cx);
+        } else if plugin == PluginId::Translate {
+            self.translate.import_text(text, window, cx);
         }
     }
 
@@ -629,6 +669,7 @@ impl Drop for PluginManager {
             PluginId::Clipboard,
             PluginId::Json,
             PluginId::Yaml,
+            PluginId::Translate,
             PluginId::Settings,
             PluginId::System,
             PluginId::Shortcuts,
@@ -638,6 +679,7 @@ impl Drop for PluginManager {
                 PluginId::Clipboard => self.clipboard.on_shutdown(),
                 PluginId::Json => self.json.on_shutdown(),
                 PluginId::Yaml => self.yaml.on_shutdown(),
+                PluginId::Translate => self.translate.on_shutdown(),
                 PluginId::Settings => self.settings.on_shutdown(),
                 PluginId::System => self.system.on_shutdown(),
                 PluginId::Shortcuts => self.shortcuts.on_shutdown(),

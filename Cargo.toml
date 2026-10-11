@@ -1,6 +1,6 @@
 [package]
 name = "jump1"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 publish = false
 description = "A fast, lightweight desktop launcher and utility toolkit built with Rust and GPUI."
@@ -17,7 +17,13 @@ image = {
   features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"],
 }
 pinyin = "=0.11.0"
-serde = "=1.0.229"
+reqwest = {
+  package = "gpui-pre-reqwest",
+  version = "=0.12.15",
+  default-features = false,
+  features = ["blocking", "json", "rustls-tls"],
+}
+serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 serde_yaml_ng = "=0.10.0"
 similar = { version = "=3.2.0", default-features = false, features = ["text"] }
@@ -36,9 +42,3 @@ smappservice-rs = "=0.1.3"
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 roxmltree = "=0.21.1"
-reqwest = {
-  package = "gpui-pre-reqwest",
-  version = "=0.12.15",
-  default-features = false,
-  features = ["blocking", "rustls-tls"],
-}

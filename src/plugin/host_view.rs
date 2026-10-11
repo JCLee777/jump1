@@ -87,6 +87,7 @@ pub fn render(
         }
         PluginId::Json => plugins.json().page().clone().into_any_element(),
         PluginId::Yaml => plugins.yaml().page().clone().into_any_element(),
+        PluginId::Translate => plugins.translate().page().clone().into_any_element(),
         PluginId::Settings => {
             let back_handler = on_event.clone();
             let change_handler = on_event;
@@ -146,6 +147,7 @@ pub fn render(
                 on_open_release,
                 on_download_update,
                 on_install_update,
+                plugins.translate().settings_page().clone(),
             )
         }
         PluginId::System | PluginId::Shortcuts => {

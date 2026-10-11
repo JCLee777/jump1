@@ -228,6 +228,7 @@ fn result_icon(result: &SearchResult, selected: bool, theme: &AppTheme) -> AnyEl
         ResultKind::Plugin => match result.title {
             crate::plugin::protocol::ResultTitle::JsonPlugin => Glyph::Json,
             crate::plugin::protocol::ResultTitle::YamlPlugin => Glyph::Yaml,
+            crate::plugin::protocol::ResultTitle::TranslatePlugin => Glyph::Translate,
             crate::plugin::protocol::ResultTitle::SettingsPlugin => Glyph::Appearance,
             _ => Glyph::Clipboard,
         },

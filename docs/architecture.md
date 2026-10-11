@@ -23,6 +23,9 @@ main.rs → lib.rs → app.rs
                     ├── plugin/yaml/
                     │   ├── mod.rs
                     │   └── view.rs
+                    ├── plugin/translate/
+                    │   ├── mod.rs
+                    │   └── view.rs
                     ├── plugin/settings/
                     │   ├── mod.rs
                     │   └── view.rs
@@ -32,7 +35,8 @@ main.rs → lib.rs → app.rs
                     │   └── mod.rs
                     ├── state.rs
                     ├── theme.rs
-                    └── update.rs
+                    ├── update.rs
+                    └── network.rs
 ```
 
 - `main.rs`：二进制入口
@@ -42,6 +46,7 @@ main.rs → lib.rs → app.rs
 - `plugin/clipboard/`：剪切板插件，包含富内容历史、类型识别、排序、搜索、持久化和插件视图
 - `plugin/json/`：JSON 编辑器插件，包含编辑器状态、校验、转换和草稿存储
 - `plugin/yaml/`：YAML 编辑器插件，包含编辑器状态、校验、转换和草稿存储
+- `plugin/translate/`：大模型翻译页面、自动方向识别、服务商配置和本地 API Key 存储
 - `plugin/settings/`：设置宿主，负责分组展示插件贡献的设置项
 - `plugin/system/`：系统级插件，提供主题、语言和面板尺寸偏好
 - `plugin/shortcuts/`：全局快捷键与目标文本绑定及独立持久化
@@ -57,6 +62,7 @@ main.rs → lib.rs → app.rs
 - `plugin/`：插件身份、状态、持久化和各自视图
 - `theme.rs`：语义设计令牌与应用级尺寸
 - `update.rs`：Apple Silicon macOS 的最新 GitHub Release 查询与更新判断
+- `network.rs`：共享的 HTTPS Chat Completions 客户端，禁用重定向并解析兼容响应
 
 `plugin/launcher/search.rs` 不依赖 GPUI，也不执行系统命令。平台差异限制在
 `platform.rs`。
@@ -182,6 +188,8 @@ YAML 编辑器沿用相同的页面插件边界，并使用独立状态：
 - 右侧对比草稿由 YAML 插件单独保存。
 - 每次进入页面时只自动载入映射、序列或带标签的结构化 YAML，避免普通剪切板文本覆盖草稿。
 - 草稿与 2/4 空格编辑缩进分别保存在 YAML 插件目录。
+
+翻译插件使用共享 Chat Completions 客户端，支持 OpenAI、DeepSeek 和自定义兼容接口；根据原文中的汉字自动选择中文译英文或英文译简体中文。服务商、模型、接口地址和 API Key 保存在翻译插件目录的本地配置文件中，API Key 以明文存储。翻译页允许手动输入或读取剪切板文本，结果不持久化，可复制回剪切板。网络请求在后台执行，原文长度限制为 32 KB。
 
 ## 功能模型
 

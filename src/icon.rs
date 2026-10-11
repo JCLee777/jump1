@@ -21,6 +21,7 @@ pub enum Glyph {
     Plugins,
     Sort,
     Trash,
+    Translate,
     Web,
     Yaml,
 }
@@ -45,6 +46,7 @@ impl Glyph {
             Self::Plugins => include_bytes!("../assets/icons/plugins.svg"),
             Self::Sort => include_bytes!("../assets/icons/sort.svg"),
             Self::Trash => include_bytes!("../assets/icons/trash.svg"),
+            Self::Translate => include_bytes!("../assets/icons/translate.svg"),
             Self::Web => include_bytes!("../assets/icons/web.svg"),
             Self::Yaml => include_bytes!("../assets/icons/yaml.svg"),
         }

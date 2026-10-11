@@ -22,6 +22,7 @@
 - 内置 YAML 编辑器插件，支持语法高亮、实时校验、格式化、键排序、剪切板导入和独立草稿恢复。
 - 设置页支持全局主题、语言，以及插件贡献的设置项。
 - 插件 manifest 支持版本、权限、页面/服务类型和生命周期状态。
+- 内置翻译插件支持从剪切板导入文本，并通过 OpenAI、DeepSeek 或自定义的 OpenAI 兼容 Chat Completions 接口翻译；根据原文自动在中文和英文之间选择翻译方向，结果可复制。服务商、模型、接口地址和 API Key 均保存在翻译插件的本地配置中，API Key 以明文存储。
 
 ## 运行
 
@@ -76,6 +77,8 @@ Apple Silicon Mac 用户可在“设置 → 通用 → 软件更新”检查新�
 - `src/plugin/clipboard/`：剪切板插件、持久化和插件视图
 - `src/plugin/json/`：JSON 编辑器、校验、格式化和草稿持久化
 - `src/plugin/yaml/`：YAML 编辑器、校验、格式化和草稿持久化
+- `src/plugin/translate/`：大模型翻译页面和服务商配置
+- `src/network.rs`：共享的 OpenAI 兼容 Chat Completions HTTP 客户端
 - `src/plugin/settings/`：主题和语言设置插件
 - `src/plugin/shortcuts/`：全局快捷方式与目标文本的独立持久化
 - `src/plugin/system/`：主题和语言等系统级设置插件
@@ -87,4 +90,4 @@ Apple Silicon Mac 用户可在“设置 → 通用 → 软件更新”检查新�
 
 ## 状态
 
-当前主页、剪切板、JSON/YAML 编辑器、快捷方式和设置已经按插件边界组织，并支持全局唤起。扩展插件执行和文件索引尚未实现。
+当前主页、剪切板、JSON/YAML 编辑器、翻译、快捷方式和设置已经按插件边界组织，并支持全局唤起。扩展插件执行和文件索引尚未实现。

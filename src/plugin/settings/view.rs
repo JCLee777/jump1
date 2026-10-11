@@ -61,6 +61,7 @@ pub fn render(
     on_open_release: OpenReleaseHandler,
     on_download_update: DownloadUpdateHandler,
     on_install_update: InstallUpdateHandler,
+    translate_settings: Entity<crate::plugin::translate::view::TranslateSettingsPanel>,
 ) -> AnyElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
@@ -70,6 +71,9 @@ pub fn render(
         if !plugin_ids.contains(&setting.plugin) {
             plugin_ids.push(setting.plugin);
         }
+    }
+    if !plugin_ids.contains(&PluginId::Translate) {
+        plugin_ids.push(PluginId::Translate);
     }
     let selected_plugin = match selected_section {
         SettingsSection::Plugin(plugin) => Some(plugin),
@@ -364,14 +368,21 @@ pub fn render(
                         })
                         .when_some(selected_plugin, |this, plugin| {
                             this.child(
-                                div().flex().flex_col().gap(spacing.lg).children(
-                                    plugin_settings
-                                        .into_iter()
-                                        .filter(|setting| setting.plugin == plugin)
-                                        .map(|setting| {
-                                            plugin_setting_row(setting, &on_change, theme)
-                                        }),
-                                ),
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(spacing.lg)
+                                    .children(
+                                        plugin_settings
+                                            .into_iter()
+                                            .filter(|setting| setting.plugin == plugin)
+                                            .map(|setting| {
+                                                plugin_setting_row(setting, &on_change, theme)
+                                            }),
+                                    )
+                                    .when(plugin == PluginId::Translate, |this| {
+                                        this.child(translate_settings.clone().into_any_element())
+                                    }),
                             )
                         })
                         .when(selected_section == SettingsSection::Shortcuts, |this| {
@@ -592,7 +603,13 @@ fn update_panel(
                         .text_size(typography.xs.size)
                         .text_color(colors.primary)
                         .font_weight(FontWeight::MEDIUM)
-                        .child(format!("v{}", release.version)),
+                        .child(format!(
+                            "v{}",
+                            release
+                                .version
+                                .strip_prefix('v')
+                                .unwrap_or(&release.version)
+                        )),
                 )
                 .child(update_button),
         );
@@ -658,6 +675,11 @@ fn plugin_presentation(plugin: PluginId, i18n: &I18n) -> (&'static str, &'static
         ),
         PluginId::Json => (Message::JsonName, Message::JsonDescription, Glyph::Json),
         PluginId::Yaml => (Message::YamlName, Message::YamlDescription, Glyph::Yaml),
+        PluginId::Translate => (
+            Message::TranslateName,
+            Message::TranslateSettingsDescription,
+            Glyph::Translate,
+        ),
         _ => (
             Message::SettingsPlugins,
             Message::SettingsPluginsDescription,
