@@ -709,14 +709,43 @@ fn scan_linux_apps(root: &Path, apps: &mut Vec<ApplicationEntry>) {
             continue;
         }
         if let Some(fallback_name) = content.lines().find_map(|line| line.strip_prefix("Name=")) {
-            let localized_name = ["Name[zh_CN]=", "Name[zh_CN.UTF-8]=", "Name[zh]="]
-                .into_iter()
-                .find_map(|prefix| content.lines().find_map(|line| line.strip_prefix(prefix)));
-            let name = localized_name.unwrap_or(fallback_name).to_owned();
-            let aliases = (name != fallback_name)
-                .then(|| fallback_name.to_owned())
-                .into_iter()
+            let localized_names: Vec<_> = content
+                .lines()
+                .filter_map(|line| {
+                    let (key, value) = line.split_once('=')?;
+                    let locale = key.strip_prefix("Name[")?.strip_suffix(']')?;
+                    (is_chinese_locale(locale) && !value.trim().is_empty())
+                        .then_some((locale, value))
+                })
                 .collect();
+            let preferred_name = [
+                "zh_CN",
+                "zh_CN.UTF-8",
+                "zh-Hans",
+                "zh_Hans",
+                "zh_TW",
+                "zh-Hant",
+                "zh_Hant",
+                "zh-HK",
+                "zh_HK",
+                "zh",
+            ]
+            .into_iter()
+            .find_map(|preferred| {
+                localized_names
+                    .iter()
+                    .find(|(locale, _)| *locale == preferred)
+                    .map(|(_, name)| *name)
+            });
+            let name = preferred_name.unwrap_or(fallback_name).to_owned();
+            let mut aliases = Vec::new();
+            for alias in
+                std::iter::once(fallback_name).chain(localized_names.iter().map(|(_, name)| *name))
+            {
+                if alias != name && !aliases.iter().any(|existing| existing == alias) {
+                    aliases.push(alias.to_owned());
+                }
+            }
             let icon_path = content
                 .lines()
                 .find_map(|line| line.strip_prefix("Icon="))
@@ -724,6 +753,14 @@ fn scan_linux_apps(root: &Path, apps: &mut Vec<ApplicationEntry>) {
             apps.push(application_entry(name, aliases, path, icon_path));
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn is_chinese_locale(locale: &str) -> bool {
+    locale == "zh"
+        || locale.starts_with("zh_")
+        || locale.starts_with("zh-")
+        || locale.starts_with("zh@")
 }
 
 #[cfg(target_os = "windows")]
@@ -776,6 +813,14 @@ fn macos_app_names(app_path: &Path) -> (String, Vec<String>) {
         "zh_CN.lproj",
         "zh-Hans_CN.lproj",
         "zh.lproj",
+        "zh-Hant.lproj",
+        "zh_TW.lproj",
+        "zh-Hant_TW.lproj",
+        "zh-Hant-TW.lproj",
+        "zh_HK.lproj",
+        "zh-HK.lproj",
+        "zh-Hant_HK.lproj",
+        "zh-Hant-HK.lproj",
     ] {
         if let Some(name) = plist_display_name(&resources.join(locale).join("InfoPlist.strings")) {
             push_name(&mut names, name);
@@ -783,6 +828,7 @@ fn macos_app_names(app_path: &Path) -> (String, Vec<String>) {
     }
 
     let info_plist = app_path.join("Contents/Info.plist");
+    append_localized_names_from_loctable(&resources.join("InfoPlist.loctable"), &mut names);
     if let Ok(value) = plist::Value::from_file(info_plist)
         && let Some(dictionary) = value.as_dictionary()
     {
@@ -807,6 +853,43 @@ fn macos_app_names(app_path: &Path) -> (String, Vec<String>) {
     let name = names.first().cloned().unwrap_or_default();
     let aliases = names.into_iter().skip(1).collect();
     (name, aliases)
+}
+
+#[cfg(target_os = "macos")]
+fn append_localized_names_from_loctable(path: &Path, names: &mut Vec<String>) {
+    let Ok(value) = plist::Value::from_file(path) else {
+        return;
+    };
+    let Some(locales) = value.as_dictionary() else {
+        return;
+    };
+
+    for locale in [
+        "zh_CN",
+        "zh-Hans-CN",
+        "zh-Hans",
+        "zh_Hans",
+        "zh_TW",
+        "zh-Hant-TW",
+        "zh-Hant",
+        "zh_Hant",
+        "zh_HK",
+        "zh-Hant-HK",
+        "zh",
+    ] {
+        let Some(dictionary) = locales.get(locale).and_then(plist::Value::as_dictionary) else {
+            continue;
+        };
+        for key in ["CFBundleDisplayName", "CFBundleName"] {
+            if let Some(name) = dictionary
+                .get(key)
+                .and_then(plist::Value::as_string)
+                .filter(|name| !name.contains("$("))
+            {
+                push_name(names, name.to_owned());
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]

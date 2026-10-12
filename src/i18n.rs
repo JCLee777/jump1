@@ -44,7 +44,9 @@ impl I18n {
 
     pub fn text(&self, message: Message) -> &'static str {
         match (self.locale, message) {
-            (Locale::ZhCn, Message::SearchPlaceholder) => "搜索应用、输入路径或网页关键词…",
+            (Locale::ZhCn, Message::SearchPlaceholder) => {
+                "搜索应用（支持中文/拼音）、输入路径或网页关键词…"
+            }
             (Locale::ZhCn, Message::EmptyResults) => "没有匹配的项目",
             (Locale::ZhCn, Message::OpenSuccess) => "已交给系统打开",
             (Locale::ZhCn, Message::KeyboardHint) => {
@@ -222,7 +224,7 @@ impl I18n {
             (Locale::ZhCn, Message::ShortcutTargetPlaceholder) => "例如：微信、剪贴板、翻译",
             (Locale::ZhCn, Message::ShortcutConflict) => "冲突",
             (Locale::EnUs, Message::SearchPlaceholder) => {
-                "Search apps, enter a path, or search the web…"
+                "Search apps by name or pinyin, enter a path, or search the web…"
             }
             (Locale::EnUs, Message::EmptyResults) => "No matching items",
             (Locale::EnUs, Message::OpenSuccess) => "Sent to the system",

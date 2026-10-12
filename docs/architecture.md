@@ -58,7 +58,7 @@ main.rs → lib.rs → app.rs
 - `plugin/storage.rs`：按插件隔离的目录、原子写入和基础读写能力
 - `icon.rs`：项目自绘 SVG 图标目录与渲染入口
 - `i18n.rs`：语言选择与全部产品文案
-- `platform.rs`：系统发现、打开操作、输入模拟和登录项管理
+- `platform.rs`：系统发现、应用名称本地化别名、打开操作、输入模拟和登录项管理
 - `plugin/`：插件身份、状态、持久化和各自视图
 - `theme.rs`：语义设计令牌与应用级尺寸
 - `update.rs`：Apple Silicon macOS 的最新 GitHub Release 查询与更新判断
@@ -67,8 +67,10 @@ main.rs → lib.rs → app.rs
 `plugin/launcher/search.rs` 不依赖 GPUI，也不执行系统命令。平台差异限制在
 `platform.rs`。
 
-全局偏好使用版本化的键值配置保存到平台配置目录。插件状态仍由插件自己保存，只有
-真正跨插件的应用偏好才进入 `state.rs`，避免把业务数据集中到宿主。
+应用搜索会为中文名称及其本地化别名生成中文、拼音全拼和拼音首字母索引；macOS 收集简体及繁体
+中文应用名，Linux 收集 `.desktop` 文件中的中文 `Name[...]` 别名。全局偏好使用版本化的键值配置
+保存到平台配置目录。插件状态仍由插件自己保存，只有真正跨插件的应用偏好才进入 `state.rs`，
+避免把业务数据集中到宿主。
 
 设置页使用 `SettingDefinition` 和 `SettingsChange` 协议。侧栏分为系统设置和插件设置；
 插件入口从实际贡献的设置项生成，每个插件单独展示其选项。设置宿主只负责分组展示和

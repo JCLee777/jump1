@@ -3,6 +3,18 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.9] - 2026-10-12
+
+### 简体中文
+
+- 修复 macOS 系统应用名称索引，支持使用中文名称、拼音全拼和首字母搜索活动监视器等应用。
+- macOS 会读取应用包中的编译本地化名称，搜索框也明确提示支持中文和拼音。
+
+### English
+
+- Fixed localized name indexing for macOS system apps, enabling searches by Chinese name, full pinyin, and initials.
+- Read compiled localized names from app bundles and clarified Chinese and pinyin support in the launcher search hint.
+
 ## [0.1.8] - 2026-10-11
 
 ### 简体中文
