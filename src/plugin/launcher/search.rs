@@ -27,6 +27,16 @@ pub fn search(query: &str, apps: &[ApplicationEntry]) -> Vec<SearchResult> {
                     action: CommandAction::Path(downloads),
                 });
             }
+            let documents = home.join("Documents");
+            if documents.exists() {
+                results.push(SearchResult {
+                    title: ResultTitle::OpenDocuments,
+                    detail: ResultDetail::Literal(documents.display().to_string()),
+                    kind: ResultKind::QuickAction,
+                    icon_path: None,
+                    action: CommandAction::Path(documents),
+                });
+            }
         }
     }
 

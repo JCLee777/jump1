@@ -149,7 +149,7 @@ impl I18n {
             (Locale::ZhCn, Message::SettingsSystem) => "系统",
             (Locale::ZhCn, Message::SettingsPlugins) => "插件",
             (Locale::ZhCn, Message::SettingsLauncher) => "主页",
-            (Locale::ZhCn, Message::SettingsLauncherDescription) => "应用搜索与最近使用",
+            (Locale::ZhCn, Message::SettingsLauncherDescription) => "应用搜索、最近使用与入口显示",
             (Locale::ZhCn, Message::SettingsGeneralDescription) => {
                 "主题、显示语言、面板大小与启动行为"
             }
@@ -177,13 +177,6 @@ impl I18n {
             (Locale::ZhCn, Message::ThemeSystem) => "跟随系统",
             (Locale::ZhCn, Message::ThemeLight) => "浅色",
             (Locale::ZhCn, Message::ThemeDark) => "深色",
-            (Locale::ZhCn, Message::AccentColorDefault) => "默认",
-            (Locale::ZhCn, Message::AccentColorBlue) => "蓝色",
-            (Locale::ZhCn, Message::AccentColorPurple) => "紫色",
-            (Locale::ZhCn, Message::AccentColorPink) => "粉色",
-            (Locale::ZhCn, Message::AccentColorOrange) => "橙色",
-            (Locale::ZhCn, Message::AccentColorGreen) => "绿色",
-            (Locale::ZhCn, Message::AccentColorTeal) => "青色",
             (Locale::ZhCn, Message::LanguageChinese) => "简体中文",
             (Locale::ZhCn, Message::LanguageEnglish) => "English",
             (Locale::ZhCn, Message::SettingsKeyboardHint) => "Esc 返回",
@@ -210,6 +203,14 @@ impl I18n {
             (Locale::ZhCn, Message::RecentApplications) => "最近使用",
             (Locale::ZhCn, Message::LauncherRecentLimit) => "最近使用数量",
             (Locale::ZhCn, Message::LauncherRecentLimitDescription) => "主页显示的最近应用数量",
+            (Locale::ZhCn, Message::LauncherPluginVisibilityDescription) => {
+                "控制此插件是否出现在主页默认列表中，仍可搜索打开"
+            }
+            (Locale::ZhCn, Message::LauncherQuickActionVisibilityDescription) => {
+                "控制此操作是否出现在主页快捷操作中"
+            }
+            (Locale::ZhCn, Message::LauncherVisibilityShow) => "显示",
+            (Locale::ZhCn, Message::LauncherVisibilityHide) => "隐藏",
             (Locale::ZhCn, Message::ShortcutBindings) => "快捷方式",
             (Locale::ZhCn, Message::ShortcutBindingsDescription) => {
                 "录制全局快捷键，填写目标文本，并可在执行前复制当前选中内容"
@@ -339,7 +340,7 @@ impl I18n {
             (Locale::EnUs, Message::SettingsPlugins) => "Plugins",
             (Locale::EnUs, Message::SettingsLauncher) => "Home",
             (Locale::EnUs, Message::SettingsLauncherDescription) => {
-                "Application search and recents"
+                "Application search, recents, and entry visibility"
             }
             (Locale::EnUs, Message::SettingsGeneralDescription) => {
                 "Theme, display language, panel size, and startup behavior"
@@ -368,13 +369,6 @@ impl I18n {
             (Locale::EnUs, Message::ThemeSystem) => "System",
             (Locale::EnUs, Message::ThemeLight) => "Light",
             (Locale::EnUs, Message::ThemeDark) => "Dark",
-            (Locale::EnUs, Message::AccentColorDefault) => "Default",
-            (Locale::EnUs, Message::AccentColorBlue) => "Blue",
-            (Locale::EnUs, Message::AccentColorPurple) => "Purple",
-            (Locale::EnUs, Message::AccentColorPink) => "Pink",
-            (Locale::EnUs, Message::AccentColorOrange) => "Orange",
-            (Locale::EnUs, Message::AccentColorGreen) => "Green",
-            (Locale::EnUs, Message::AccentColorTeal) => "Teal",
             (Locale::EnUs, Message::LanguageChinese) => "简体中文",
             (Locale::EnUs, Message::LanguageEnglish) => "English",
             (Locale::EnUs, Message::SettingsKeyboardHint) => "Esc Back",
@@ -405,6 +399,14 @@ impl I18n {
             (Locale::EnUs, Message::LauncherRecentLimitDescription) => {
                 "Number of recent applications shown on the home page"
             }
+            (Locale::EnUs, Message::LauncherPluginVisibilityDescription) => {
+                "Show in the home list; hidden plugins remain searchable"
+            }
+            (Locale::EnUs, Message::LauncherQuickActionVisibilityDescription) => {
+                "Show or hide this action in the home quick actions"
+            }
+            (Locale::EnUs, Message::LauncherVisibilityShow) => "Show",
+            (Locale::EnUs, Message::LauncherVisibilityHide) => "Hide",
             (Locale::EnUs, Message::ShortcutBindings) => "Shortcuts",
             (Locale::EnUs, Message::ShortcutBindingsDescription) => {
                 "Record a shortcut, enter its target, and optionally copy selected text first"
@@ -469,20 +471,22 @@ impl I18n {
             (Locale::ZhCn, ResultTitle::YamlPlugin) => "YAML 编辑器".into(),
             (Locale::ZhCn, ResultTitle::TranslatePlugin) => "翻译".into(),
             (Locale::ZhCn, ResultTitle::SettingsPlugin) => "设置".into(),
-            (Locale::ZhCn, ResultTitle::OpenHome) => "打开个人文件夹".into(),
-            (Locale::ZhCn, ResultTitle::OpenDownloads) => "打开下载文件夹".into(),
+            (Locale::ZhCn, ResultTitle::OpenHome) => "个人".into(),
+            (Locale::ZhCn, ResultTitle::OpenDownloads) => "下载".into(),
+            (Locale::ZhCn, ResultTitle::OpenDocuments) => "文稿".into(),
             (Locale::ZhCn, ResultTitle::OpenPath(name)) => format!("打开 {name}"),
             (Locale::ZhCn, ResultTitle::OpenUrl) => "打开网址".into(),
             (Locale::ZhCn, ResultTitle::SearchWeb(query)) => {
                 format!("在浏览器搜索「{query}」")
             }
-            (Locale::EnUs, ResultTitle::OpenHome) => "Open home folder".into(),
+            (Locale::EnUs, ResultTitle::OpenHome) => "Home".into(),
             (Locale::EnUs, ResultTitle::ClipboardPlugin) => "Clipboard".into(),
             (Locale::EnUs, ResultTitle::JsonPlugin) => "JSON Editor".into(),
             (Locale::EnUs, ResultTitle::YamlPlugin) => "YAML Editor".into(),
             (Locale::EnUs, ResultTitle::TranslatePlugin) => "Translate".into(),
             (Locale::EnUs, ResultTitle::SettingsPlugin) => "Settings".into(),
-            (Locale::EnUs, ResultTitle::OpenDownloads) => "Open Downloads".into(),
+            (Locale::EnUs, ResultTitle::OpenDownloads) => "Downloads".into(),
+            (Locale::EnUs, ResultTitle::OpenDocuments) => "Documents".into(),
             (Locale::EnUs, ResultTitle::OpenPath(name)) => format!("Open {name}"),
             (Locale::EnUs, ResultTitle::OpenUrl) => "Open URL".into(),
             (Locale::EnUs, ResultTitle::SearchWeb(query)) => {
@@ -665,13 +669,6 @@ pub enum Message {
     ThemeSystem,
     ThemeLight,
     ThemeDark,
-    AccentColorDefault,
-    AccentColorBlue,
-    AccentColorPurple,
-    AccentColorPink,
-    AccentColorOrange,
-    AccentColorGreen,
-    AccentColorTeal,
     LanguageChinese,
     LanguageEnglish,
     SettingsKeyboardHint,
@@ -698,6 +695,10 @@ pub enum Message {
     RecentApplications,
     LauncherRecentLimit,
     LauncherRecentLimitDescription,
+    LauncherPluginVisibilityDescription,
+    LauncherQuickActionVisibilityDescription,
+    LauncherVisibilityShow,
+    LauncherVisibilityHide,
     ShortcutBindings,
     ShortcutBindingsDescription,
     ShortcutKeyColumn,

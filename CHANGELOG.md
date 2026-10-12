@@ -3,6 +3,20 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.12] - 2026-10-12
+
+### 简体中文
+
+- 主页新增文稿文件夹快捷入口，并将个人、下载、文稿入口名称简化。
+- 设置 → 主页可分别控制内置插件和文件夹快捷操作是否显示在主页默认列表中。
+- 强调色选择改为仅显示色块，移除颜色文字提示。
+
+### English
+
+- Added a Documents folder shortcut to the home page and shortened the Home, Downloads, and Documents labels.
+- Added separate settings to show or hide built-in plugins and folder actions in the home page's default list.
+- Simplified accent color selection to swatches without text labels.
+
 ## [0.1.11] - 2026-10-12
 
 ### 简体中文

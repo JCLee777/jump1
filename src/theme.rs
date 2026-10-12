@@ -266,7 +266,6 @@ pub struct Metrics {
     pub setting_row_height: Pixels,
     pub accent_swatch_size: Pixels,
     pub accent_swatch_hit_size: Pixels,
-    pub accent_swatch_label_width: Pixels,
     pub shortcut_key_width: Pixels,
     pub shortcut_copy_width: Pixels,
 }
@@ -294,7 +293,6 @@ impl Default for Metrics {
             setting_row_height: px(68.),
             accent_swatch_size: px(18.),
             accent_swatch_hit_size: px(32.),
-            accent_swatch_label_width: px(64.),
             shortcut_key_width: px(176.),
             shortcut_copy_width: px(74.),
         }

@@ -856,19 +856,14 @@ fn accent_color_row(
     let spacing = theme.semantic.spacing;
     let typography = &theme.semantic.typography;
     let options = [
-        (AccentColor::Default, i18n.text(Message::AccentColorDefault)),
-        (AccentColor::Blue, i18n.text(Message::AccentColorBlue)),
-        (AccentColor::Purple, i18n.text(Message::AccentColorPurple)),
-        (AccentColor::Pink, i18n.text(Message::AccentColorPink)),
-        (AccentColor::Orange, i18n.text(Message::AccentColorOrange)),
-        (AccentColor::Green, i18n.text(Message::AccentColorGreen)),
-        (AccentColor::Teal, i18n.text(Message::AccentColorTeal)),
+        AccentColor::Default,
+        AccentColor::Blue,
+        AccentColor::Purple,
+        AccentColor::Pink,
+        AccentColor::Orange,
+        AccentColor::Green,
+        AccentColor::Teal,
     ];
-    let selected_label = options
-        .iter()
-        .find(|(accent, _)| *accent == selected)
-        .map(|(_, label)| *label)
-        .unwrap_or(i18n.text(Message::AccentColorDefault));
 
     div()
         .w_full()
@@ -890,7 +885,7 @@ fn accent_color_row(
                 .flex()
                 .items_center()
                 .gap(spacing.xs)
-                .children(options.into_iter().map(|(accent, _label)| {
+                .children(options.into_iter().map(|accent| {
                     let active = accent == selected;
                     let color = accent.color().unwrap_or(colors.muted_foreground);
                     let callback = on_change.clone();
@@ -918,14 +913,7 @@ fn accent_color_row(
                                 .bg(color),
                         )
                         .into_any_element()
-                }))
-                .child(
-                    div()
-                        .w(theme.metrics.accent_swatch_label_width)
-                        .text_size(typography.xs.size)
-                        .text_color(colors.muted_foreground)
-                        .child(selected_label),
-                ),
+                })),
         )
 }
 

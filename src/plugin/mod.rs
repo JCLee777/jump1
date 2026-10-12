@@ -322,7 +322,10 @@ impl PluginManager {
     pub fn results(&self) -> Vec<SearchResult> {
         let mut results = self.launcher.results();
         let mut plugin_results = Vec::new();
+        let keep_plugin_searchable = !self.launcher.query().trim().is_empty();
         if self.registry.contains(PluginId::Clipboard)
+            && (keep_plugin_searchable
+                || self.launcher.is_plugin_entry_visible(PluginId::Clipboard))
             && ClipboardPlugin::matches_launcher_query(self.launcher.query())
         {
             plugin_results.push(SearchResult {
@@ -334,6 +337,7 @@ impl PluginManager {
             });
         }
         if self.registry.contains(PluginId::Settings)
+            && (keep_plugin_searchable || self.launcher.is_plugin_entry_visible(PluginId::Settings))
             && crate::plugin::settings::matches_launcher_query(self.launcher.query())
         {
             plugin_results.push(SearchResult {
@@ -345,6 +349,7 @@ impl PluginManager {
             });
         }
         if self.registry.contains(PluginId::Json)
+            && (keep_plugin_searchable || self.launcher.is_plugin_entry_visible(PluginId::Json))
             && JsonPlugin::matches_launcher_query(self.launcher.query())
         {
             plugin_results.push(SearchResult {
@@ -356,6 +361,7 @@ impl PluginManager {
             });
         }
         if self.registry.contains(PluginId::Yaml)
+            && (keep_plugin_searchable || self.launcher.is_plugin_entry_visible(PluginId::Yaml))
             && YamlPlugin::matches_launcher_query(self.launcher.query())
         {
             plugin_results.push(SearchResult {
@@ -367,6 +373,8 @@ impl PluginManager {
             });
         }
         if self.registry.contains(PluginId::Translate)
+            && (keep_plugin_searchable
+                || self.launcher.is_plugin_entry_visible(PluginId::Translate))
             && TranslatePlugin::matches_launcher_query(self.launcher.query())
         {
             plugin_results.push(SearchResult {

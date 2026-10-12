@@ -54,6 +54,7 @@ pub enum ResultTitle {
     SettingsPlugin,
     OpenHome,
     OpenDownloads,
+    OpenDocuments,
     OpenPath(String),
     OpenUrl,
     SearchWeb(String),
