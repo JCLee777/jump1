@@ -3,6 +3,16 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.10] - 2026-10-12
+
+### 简体中文
+
+- 修复深色主题下灰色强调色的翻译按钮文字对比度，调整设置页“保存并测试”和翻译页“翻译”按钮的文字颜色。
+
+### English
+
+- Improved text contrast for translation buttons with the gray accent in dark mode, including “Save and test” in settings and “Translate” on the translation page.
+
 ## [0.1.9] - 2026-10-12
 
 ### 简体中文

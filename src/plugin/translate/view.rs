@@ -10,7 +10,7 @@ use crate::{
     i18n::{I18n, Locale, Message},
     icon::{Glyph, glyph},
     plugin::{PluginEvent, PluginEventHandler, storage::PluginStorage},
-    theme::AppTheme,
+    theme::{AppTheme, contrast_foreground},
 };
 
 use super::{
@@ -432,9 +432,7 @@ impl Render for TranslatePage {
                                                     .justify_center()
                                                     .rounded(theme.semantic.radius.md)
                                                     .bg(colors.primary)
-                                                    .text_color(
-                                                        theme.materials.selection_foreground,
-                                                    )
+                                                    .text_color(contrast_foreground(colors.primary))
                                                     .text_size(typography.md.size)
                                                     .when(!translate_disabled, |this| {
                                                         this.cursor_pointer()
@@ -873,7 +871,7 @@ fn action_button(
         theme.materials.control
     };
     let foreground = if primary {
-        theme.materials.selection_foreground
+        contrast_foreground(background)
     } else {
         colors.foreground
     };

@@ -158,7 +158,7 @@ pub fn apply_accent_color(accent: AccentColor, cx: &mut App) {
     });
 }
 
-fn contrast_foreground(background: Hsla) -> Hsla {
+pub(crate) fn contrast_foreground(background: Hsla) -> Hsla {
     let channels = background.to_rgb();
     let linear = |channel: f32| {
         if channel <= 0.04045 {
