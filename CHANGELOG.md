@@ -3,6 +3,16 @@
 All notable changes to Jump1 are recorded here. Each published version is also
 available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releases).
 
+## [0.1.11] - 2026-10-12
+
+### 简体中文
+
+- 修复多显示器下启动器仍显示在默认屏幕的问题；面板启动或快捷键唤起时，会在鼠标所在屏幕居中显示。
+
+### English
+
+- Fixed the launcher appearing on the default display in multi-display setups. The panel now opens centered on the display containing the pointer at startup and when invoked by its hotkey.
+
 ## [0.1.10] - 2026-10-12
 
 ### 简体中文

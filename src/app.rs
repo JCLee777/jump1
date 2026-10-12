@@ -698,9 +698,16 @@ impl Jump1Shell {
         }
         self.recording_shortcut = None;
         self.editing_shortcut_query = None;
+        self.activate_panel_window(window, cx);
+        self.focus_active_plugin(window, cx);
+    }
+
+    fn activate_panel_window(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if !window.is_window_active() {
+            platform::center_window_on_pointer(window);
+        }
         cx.activate(true);
         window.activate_window();
-        self.focus_active_plugin(window, cx);
     }
 
     fn run_shortcut_binding(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
@@ -749,23 +756,20 @@ impl Jump1Shell {
 
         match self.plugins.activate(0) {
             PluginCommand::Action(action @ CommandAction::OpenPlugin(_)) => {
-                cx.activate(true);
-                window.activate_window();
+                self.activate_panel_window(window, cx);
                 self.activate_command(action, window, cx);
             }
             PluginCommand::Action(action) => {
                 if self.activate_command(action, window, cx) {
                     self.reset_input(self.plugins.input_placeholder(&self.i18n), window, cx);
                 } else {
-                    cx.activate(true);
-                    window.activate_window();
+                    self.activate_panel_window(window, cx);
                     window.focus(&self.input.focus_handle(cx), cx);
                     cx.notify();
                 }
             }
             PluginCommand::PasteClipboard(_) | PluginCommand::None => {
-                cx.activate(true);
-                window.activate_window();
+                self.activate_panel_window(window, cx);
                 window.focus(&self.input.focus_handle(cx), cx);
                 cx.notify();
             }

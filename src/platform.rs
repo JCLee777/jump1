@@ -239,6 +239,57 @@ pub fn hide_window_controls(window: &gpui_kit::Window) {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub fn center_window_on_pointer(window: &gpui_kit::Window) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSEvent, NSScreen, NSView};
+    use objc2_foundation::NSPoint;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let Some(main_thread) = MainThreadMarker::new() else {
+        return;
+    };
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return;
+    };
+    // The AppKit handle owns this view for the lifetime of `window`.
+    let view = unsafe { &*handle.ns_view.as_ptr().cast::<NSView>() };
+    let Some(native_window) = view.window() else {
+        return;
+    };
+
+    let pointer = NSEvent::mouseLocation();
+    let screens = NSScreen::screens(main_thread);
+    let pointer_screen = (0..screens.count()).find_map(|index| {
+        let screen = screens.objectAtIndex(index);
+        let frame = screen.frame();
+        let contains_pointer = pointer.x >= frame.origin.x
+            && pointer.x < frame.origin.x + frame.size.width
+            && pointer.y >= frame.origin.y
+            && pointer.y < frame.origin.y + frame.size.height;
+        contains_pointer.then_some(screen)
+    });
+    let Some(screen) = pointer_screen
+        .or_else(|| native_window.screen())
+        .or_else(|| NSScreen::mainScreen(main_thread))
+    else {
+        return;
+    };
+
+    let visible_frame = screen.visibleFrame();
+    let window_frame = native_window.frame();
+    native_window.setFrameOrigin(NSPoint::new(
+        visible_frame.origin.x + (visible_frame.size.width - window_frame.size.width) / 2.0,
+        visible_frame.origin.y + (visible_frame.size.height - window_frame.size.height) / 2.0,
+    ));
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn center_window_on_pointer(_window: &gpui_kit::Window) {}
+
 pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os(if cfg!(target_os = "windows") {
         "USERPROFILE"

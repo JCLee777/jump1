@@ -1,6 +1,6 @@
 [package]
 name = "jump1"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2024"
 publish = false
 description = "A fast, lightweight desktop launcher and utility toolkit built with Rust and GPUI."
@@ -31,7 +31,7 @@ similar = { version = "=3.2.0", default-features = false, features = ["text"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 icns = "=0.5.0"
 objc2 = "=0.6.4"
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication", "NSPasteboard", "NSPasteboardItem", "NSWindow", "NSView", "NSButton", "libc"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication", "NSPasteboard", "NSPasteboardItem", "NSWindow", "NSView", "NSButton", "NSEvent", "NSScreen", "libc"] }
 objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFData", "CFDictionary", "CFNumber", "CFString", "CFURL"] }
 objc2-core-graphics = { version = "=0.3.2", default-features = false, features = ["std", "CGBitmapContext", "CGAffineTransform", "CGColorSpace", "CGContext", "CGGeometry", "CGImage"] }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSString"] }

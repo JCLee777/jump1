@@ -52,6 +52,7 @@ pub fn run() {
                 |window, cx| {
                     #[cfg(target_os = "macos")]
                     platform::hide_window_controls(window);
+                    platform::center_window_on_pointer(window);
                     Theme::sync_system_appearance(Some(window), cx);
                     let shell = cx.new(|cx| Jump1Shell::new(previous_application, window, cx));
                     if preferences.accent_color != AccentColor::Default {
