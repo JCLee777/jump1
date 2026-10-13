@@ -68,6 +68,10 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
   the setup EXE installs per-user, adds Start Menu and uninstall entries, and is
   intended for initial setup or manual upgrades. After an in-app update, refresh
   the registered version when the setup program's per-user uninstall entry exists.
+  Windows login startup uses the current user's
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value and starts
+  Jump1 with `--background`; keep the setup uninstaller aligned so it removes that
+  value when Jump1 is uninstalled.
   `build.rs` embeds the app icon and executable version metadata from the project
   icon and Cargo version.
 - The in-app updater reads the public `JCLee777/jump1` GitHub Releases feed and

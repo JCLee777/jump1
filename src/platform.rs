@@ -703,6 +703,16 @@ pub(crate) fn write_image_to_clipboard(
     windows_platform::write_image_to_clipboard(window, image)
 }
 
+pub(crate) fn acquire_single_instance() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        return windows_platform::acquire_single_instance();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    true
+}
+
 pub fn launch_at_login_enabled() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -714,7 +724,12 @@ pub fn launch_at_login_enabled() -> bool {
         );
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        return windows_platform::launch_at_login_enabled();
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     false
 }
 
@@ -746,7 +761,12 @@ pub fn set_launch_at_login(enabled: bool) -> Result<(), String> {
         return service.unregister().map_err(|error| error.to_string());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        return windows_platform::set_launch_at_login(enabled);
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = enabled;
         Err("launch at login is unavailable on this platform".into())
@@ -822,6 +842,13 @@ mod windows_platform {
     use gpui_kit::{Image, ImageFormat};
     use image::ImageDecoder as _;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::{
+        Win32::{
+            Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError},
+            System::Threading::CreateMutexW,
+        },
+        core::w,
+    };
     use windows_sys::Win32::{
         Foundation::{LPARAM, LRESULT, POINT, WPARAM},
         System::LibraryLoader::GetModuleHandleW,
@@ -848,6 +875,57 @@ mod windows_platform {
 
     const CF_DIB: u32 = 8;
     const CF_HDROP: u32 = 15;
+    const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    const RUN_VALUE: &str = "Jump1";
+
+    static SINGLE_INSTANCE_MUTEX: OnceLock<isize> = OnceLock::new();
+
+    pub(super) fn acquire_single_instance() -> bool {
+        let Ok(mutex) =
+            (unsafe { CreateMutexW(None, false, w!("Local\\JCLee777.Jump1.SingleInstance")) })
+        else {
+            return false;
+        };
+        let already_exists = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+        if already_exists {
+            let _ = unsafe { CloseHandle(mutex) };
+            return false;
+        }
+
+        if SINGLE_INSTANCE_MUTEX.set(mutex.0 as isize).is_err() {
+            let _ = unsafe { CloseHandle(mutex) };
+            return false;
+        }
+        true
+    }
+
+    pub(super) fn launch_at_login_enabled() -> bool {
+        windows_registry::CURRENT_USER
+            .open(RUN_KEY)
+            .ok()
+            .and_then(|key| key.get_string(RUN_VALUE).ok())
+            .is_some_and(|command| !command.is_empty())
+    }
+
+    pub(super) fn set_launch_at_login(enabled: bool) -> Result<(), String> {
+        let key = windows_registry::CURRENT_USER
+            .create(RUN_KEY)
+            .map_err(|error| format!("could not open the Windows login startup key: {error}"))?;
+
+        if enabled {
+            let executable = std::env::current_exe()
+                .map_err(|error| format!("could not locate the Jump1 executable: {error}"))?;
+            let command = format!("\"{}\" --background", executable.display());
+            key.set_string(RUN_VALUE, command)
+                .map_err(|error| format!("could not enable Windows login startup: {error}"))
+        } else {
+            if key.get_string(RUN_VALUE).is_err() {
+                return Ok(());
+            }
+            key.remove_value(RUN_VALUE)
+                .map_err(|error| format!("could not disable Windows login startup: {error}"))
+        }
+    }
     const GMEM_MOVEABLE: u32 = 0x0002;
     const GMEM_ZEROINIT: u32 = 0x0040;
     const MAX_DIB_BYTES: usize = 256 * 1024 * 1024;

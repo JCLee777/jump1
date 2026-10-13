@@ -3589,7 +3589,7 @@ dependencies = [
 
 [[package]]
 name = "jump1"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "chrono",
  "embed-resource",
@@ -3614,6 +3614,7 @@ dependencies = [
  "similar",
  "smappservice-rs",
  "windows 0.61.3",
+ "windows-registry 0.6.1",
  "windows-sys 0.61.2",
 ]
 

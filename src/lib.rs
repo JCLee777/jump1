@@ -18,12 +18,24 @@ use plugin::system::ThemeChoice;
 use theme::{AccentColor, apply_accent_color};
 
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    if !platform::acquire_single_instance() {
+        return;
+    }
+
+    #[cfg(target_os = "windows")]
+    let start_in_background = std::env::args_os().any(|argument| argument == "--background");
+    #[cfg(not(target_os = "windows"))]
+    let start_in_background = false;
+
     application()
         .with_assets(gpui_kit::assets::Assets)
-        .run(|cx: &mut App| {
+        .run(move |cx: &mut App| {
             gpui_kit::init(cx);
             let previous_application = platform::frontmost_application();
-            cx.activate(true);
+            if !start_in_background {
+                cx.activate(true);
+            }
             let preferences = state::Preferences::load();
             match preferences.theme {
                 ThemeChoice::System => Theme::sync_system_appearance(None, cx),
@@ -35,8 +47,8 @@ pub fn run() {
             gpui_kit::open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    focus: true,
-                    show: true,
+                    focus: !start_in_background,
+                    show: !start_in_background,
                     titlebar: Some(TitlebarOptions {
                         appears_transparent: true,
                         ..Default::default()

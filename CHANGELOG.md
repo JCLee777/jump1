@@ -5,19 +5,23 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-10-13
+
 ### 简体中文
 
 - 修复 Windows 托盘图标左右键事件识别；面板已显示时再次点击不改变窗口状态。
 - 为 Windows 可执行文件嵌入应用图标，增加便携 ZIP 打包，并在 GitHub Release 中构建 Windows 版本。
-- 增加 Windows 用户级安装程序，创建开始菜单入口并支持卸载；GitHub Release 同时提供安装程序和便携 ZIP。
+- 增加 Windows 用户级安装程序，创建开始菜单入口并支持卸载；卸载时清除登录启动项，GitHub Release 同时提供安装程序和便携 ZIP。
 - Windows 设置页支持检查、下载和经用户确认后安装更新。
+- Windows 启动时使用系统互斥锁保证单例；“登录时启动”会在登录后于后台启动并注册全局快捷键。
 
 ### English
 
 - Fixed Windows notification area click handling; clicking again while the panel is visible leaves it unchanged.
 - Embedded the app icon in the Windows executable, added portable ZIP packaging, and added Windows builds to GitHub Releases.
-- Added a per-user Windows installer with a Start Menu shortcut and uninstaller; GitHub Releases now provide both the installer and portable ZIP.
+- Added a per-user Windows installer with a Start Menu shortcut and uninstaller that removes the login startup entry; GitHub Releases now provide both the installer and portable ZIP.
 - Added Windows update checks, downloads, and installation after explicit user confirmation.
+- Enforced a single running Windows instance and implemented “Run at login” to start in the background with global shortcuts ready.
 
 ## [0.1.12] - 2026-10-12
 

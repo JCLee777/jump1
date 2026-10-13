@@ -89,6 +89,7 @@ Section un.Uninstall
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
 
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Jump1"
   DeleteRegKey HKCU "${UNINSTALL_REG_KEY}"
   DeleteRegKey HKCU "${APP_REG_KEY}"
 SectionEnd
