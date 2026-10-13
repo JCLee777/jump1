@@ -19,6 +19,7 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
 - `src/theme.rs`: own application metrics and resolve semantic design tokens.
 - `src/update.rs`: query the latest supported GitHub Release and parse its notes.
 - `build.rs` and `assets/app-icon.ico`: embed the Windows executable icon and version resource.
+- `installer/windows.nsi`: build the per-user Windows setup program with Start Menu and uninstall entries.
 - `.github/workflows/release.yml`: validate tags and build/publish macOS ARM64 and Windows x86_64 releases.
 - `CHANGELOG.md`: record user-facing changes for each version.
 - `docs/architecture.md`: record module boundaries and extension decisions.
@@ -59,11 +60,16 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
 - Treat a published release and its tag as immutable. Correct a published build
   with a new patch version rather than moving its tag or replacing its asset.
 - Supported release targets are Apple Silicon macOS (`aarch64-apple-darwin`) and
-  Windows x86_64 MSVC (`x86_64-pc-windows-msvc`). Keep `Jump1-MAJOR.MINOR.PATCH-aarch64.dmg`
-  and `Jump1-MAJOR.MINOR.PATCH-x86_64-windows.zip` aligned between the packaging
-  scripts, release workflow, and `src/update.rs`. The Windows ZIP contains the
-  versioned `Jump1.exe` plus `README-Windows.txt`; `build.rs` embeds the icon and
-  executable version metadata from the project icon and Cargo version.
+  Windows x86_64 MSVC (`x86_64-pc-windows-msvc`). Keep `Jump1-MAJOR.MINOR.PATCH-aarch64.dmg`,
+  `Jump1-MAJOR.MINOR.PATCH-x86_64-windows.zip`, and
+  `Jump1-MAJOR.MINOR.PATCH-x86_64-windows-setup.exe` aligned between the packaging
+  scripts and release workflow. The in-app updater continues to use only the
+  versioned Windows ZIP, whose contents are `Jump1.exe` plus `README-Windows.txt`;
+  the setup EXE installs per-user, adds Start Menu and uninstall entries, and is
+  intended for initial setup or manual upgrades. After an in-app update, refresh
+  the registered version when the setup program's per-user uninstall entry exists.
+  `build.rs` embeds the app icon and executable version metadata from the project
+  icon and Cargo version.
 - The in-app updater reads the public `JCLee777/jump1` GitHub Releases feed and
   downloads the matching platform package. The user must select Install and
   Relaunch before the updater replaces the current app. Restrict downloads to

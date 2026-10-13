@@ -486,6 +486,10 @@ try {
     Start-Process -FilePath $TargetPath
     Remove-Item -LiteralPath $BackupPath -Force
     $MovedOld = $false
+    $UninstallRegistryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Jump1'
+    if (Test-Path -LiteralPath $UninstallRegistryKey) {
+        Set-ItemProperty -LiteralPath $UninstallRegistryKey -Name 'DisplayVersion' -Value $ExpectedVersion -ErrorAction SilentlyContinue
+    }
     Remove-Item -LiteralPath $ArchivePath -Force -ErrorAction SilentlyContinue
 }
 catch {
