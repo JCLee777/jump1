@@ -19,7 +19,6 @@ use std::{
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    os::windows::ffi::OsStrExt,
     time::UNIX_EPOCH,
 };
 
@@ -209,15 +208,38 @@ pub fn discover_apps() -> Vec<ApplicationEntry> {
 
     #[cfg(target_os = "windows")]
     {
-        for variable in ["APPDATA", "PROGRAMDATA"] {
-            if let Ok(base) = std::env::var(variable) {
-                scan_windows_shortcuts(
-                    &PathBuf::from(base).join("Microsoft/Windows/Start Menu/Programs"),
-                    4,
-                    &mut apps,
-                );
-            }
-        }
+        // The GPUI background executor uses MTA workers, while the Windows
+        // Shell shortcut and icon APIs need an STA apartment. Keep the entire
+        // scan on one dedicated STA thread so Shell can resolve every .lnk.
+        let windows_apps = std::thread::Builder::new()
+            .name("jump1-windows-app-scan".into())
+            .spawn(|| {
+                let Some(_com) = WindowsComApartment::initialize() else {
+                    return Vec::new();
+                };
+                let jumbo_icon_list = unsafe {
+                    windows::Win32::UI::Shell::SHGetImageList::<
+                        windows::Win32::UI::Controls::IImageList,
+                    >(windows::Win32::UI::Shell::SHIL_JUMBO as i32)
+                }
+                .ok();
+                let mut apps = Vec::new();
+                for variable in ["APPDATA", "PROGRAMDATA"] {
+                    if let Ok(base) = std::env::var(variable) {
+                        scan_windows_shortcuts(
+                            &PathBuf::from(base).join("Microsoft/Windows/Start Menu/Programs"),
+                            4,
+                            jumbo_icon_list.as_ref(),
+                            &mut apps,
+                        );
+                    }
+                }
+                apps
+            })
+            .ok()
+            .and_then(|worker| worker.join().ok())
+            .unwrap_or_default();
+        apps.extend(windows_apps);
         let mut seen_names = std::collections::HashSet::new();
         apps.retain(|app| seen_names.insert(text_search::normalize(&app.name)));
     }
@@ -652,6 +674,11 @@ pub(crate) fn hide_panel_window(window: &gpui_kit::Window) {
     let _ = window;
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) fn install_tray_icon(window: &gpui_kit::Window) {
+    windows_platform::install_tray_icon(window);
+}
+
 pub(crate) fn show_panel_window(window: &gpui_kit::Window) {
     #[cfg(target_os = "windows")]
     windows_platform::show_panel_window(window);
@@ -789,11 +816,29 @@ mod windows_platform {
         os::windows::{ffi::OsStrExt, process::CommandExt},
         path::{Path, PathBuf},
         process::Command,
+        sync::OnceLock,
     };
 
     use gpui_kit::{Image, ImageFormat};
     use image::ImageDecoder as _;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::{
+        Foundation::{LPARAM, LRESULT, POINT, WPARAM},
+        UI::{
+            Shell::{
+                DefSubclassProc, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
+                NIM_SETVERSION, NIN_SELECT, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
+                RemoveWindowSubclass, SetWindowSubclass, Shell_NotifyIconW,
+            },
+            WindowsAndMessaging::{
+                AppendMenuW, CreatePopupMenu, DestroyMenu, GetClassLongPtrW, GetCursorPos,
+                ICON_SMALL2, IDI_APPLICATION, LoadIconW, MF_STRING, PostMessageW,
+                RegisterWindowMessageW, SendMessageW, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+                TrackPopupMenu, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_GETICON, WM_LBUTTONUP,
+                WM_NCDESTROY, WM_NULL, WM_RBUTTONUP,
+            },
+        },
+    };
 
     use super::ApplicationTarget;
 
@@ -806,7 +851,13 @@ mod windows_platform {
     const MAX_DIB_BYTES: usize = 256 * 1024 * 1024;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     const SW_HIDE: i32 = 0;
+    const SW_SHOW: i32 = 5;
     const SW_RESTORE: i32 = 9;
+    const TRAY_ICON_ID: u32 = 1;
+    const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 0x171;
+    const TRAY_EXIT_COMMAND: usize = 1;
+    const TRAY_SUBCLASS_ID: usize = 0x4A_55_4D_50;
+    static TASKBAR_CREATED_MESSAGE: OnceLock<u32> = OnceLock::new();
 
     #[repr(C)]
     struct DropFiles {
@@ -825,6 +876,7 @@ mod windows_platform {
         fn IsIconic(hwnd: Hwnd) -> i32;
         fn ShowWindow(hwnd: Hwnd, command: i32) -> i32;
         fn SetForegroundWindow(hwnd: Hwnd) -> i32;
+        fn BringWindowToTop(hwnd: Hwnd) -> i32;
         fn OpenClipboard(hwnd: Hwnd) -> i32;
         fn EmptyClipboard() -> i32;
         fn CloseClipboard() -> i32;
@@ -881,6 +933,148 @@ mod windows_platform {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn install_tray_icon(window: &gpui_kit::Window) {
+        let Some(hwnd) = window_hwnd(window) else {
+            return;
+        };
+        if unsafe { SetWindowSubclass(hwnd, Some(tray_window_proc), TRAY_SUBCLASS_ID, 0) } == 0 {
+            return;
+        }
+
+        let mut tray = tray_icon_data(hwnd);
+        let added = unsafe { Shell_NotifyIconW(NIM_ADD, &tray) } != 0;
+        if !added {
+            unsafe { RemoveWindowSubclass(hwnd, Some(tray_window_proc), TRAY_SUBCLASS_ID) };
+            return;
+        }
+
+        tray.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+        unsafe { Shell_NotifyIconW(NIM_SETVERSION, &tray) };
+    }
+
+    fn tray_icon_data(hwnd: Hwnd) -> NOTIFYICONDATAW {
+        let mut data = NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: hwnd,
+            uID: TRAY_ICON_ID,
+            uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
+            uCallbackMessage: TRAY_CALLBACK_MESSAGE,
+            hIcon: tray_icon(hwnd),
+            ..Default::default()
+        };
+        let tooltip: Vec<u16> = "Jump1".encode_utf16().chain(Some(0)).collect();
+        data.szTip[..tooltip.len()].copy_from_slice(&tooltip);
+        data
+    }
+
+    fn tray_icon(hwnd: Hwnd) -> windows_sys::Win32::UI::WindowsAndMessaging::HICON {
+        let window_icon = unsafe {
+            SendMessageW(hwnd, WM_GETICON, ICON_SMALL2 as WPARAM, 0)
+                as windows_sys::Win32::UI::WindowsAndMessaging::HICON
+        };
+        if !window_icon.is_null() {
+            return window_icon;
+        }
+
+        let class_icon = unsafe {
+            GetClassLongPtrW(
+                hwnd,
+                windows_sys::Win32::UI::WindowsAndMessaging::GCLP_HICONSM,
+            ) as windows_sys::Win32::UI::WindowsAndMessaging::HICON
+        };
+        if !class_icon.is_null() {
+            return class_icon;
+        }
+
+        unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) }
+    }
+
+    unsafe extern "system" fn tray_window_proc(
+        hwnd: Hwnd,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        _subclass_id: usize,
+        _reference_data: usize,
+    ) -> LRESULT {
+        if message == TRAY_CALLBACK_MESSAGE {
+            match lparam as u32 {
+                NIN_SELECT | WM_LBUTTONUP => {
+                    unsafe {
+                        ShowWindow(hwnd, SW_SHOW);
+                        ShowWindow(hwnd, SW_RESTORE);
+                        BringWindowToTop(hwnd);
+                        SetForegroundWindow(hwnd);
+                    }
+                    return 0;
+                }
+                WM_CONTEXTMENU | WM_RBUTTONUP => {
+                    show_tray_context_menu(hwnd);
+                    return 0;
+                }
+                _ => return 0,
+            }
+        }
+
+        let taskbar_created = *TASKBAR_CREATED_MESSAGE.get_or_init(|| {
+            let name: Vec<u16> = "TaskbarCreated".encode_utf16().chain(Some(0)).collect();
+            unsafe { RegisterWindowMessageW(name.as_ptr()) }
+        });
+        if taskbar_created != 0 && message == taskbar_created {
+            let tray = tray_icon_data(hwnd);
+            unsafe {
+                Shell_NotifyIconW(NIM_ADD, &tray);
+                Shell_NotifyIconW(NIM_SETVERSION, &tray);
+            }
+        }
+
+        if message == WM_NCDESTROY {
+            let tray = tray_icon_data(hwnd);
+            unsafe {
+                Shell_NotifyIconW(NIM_DELETE, &tray);
+                RemoveWindowSubclass(hwnd, Some(tray_window_proc), TRAY_SUBCLASS_ID);
+            }
+        }
+
+        unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+    }
+
+    fn show_tray_context_menu(hwnd: Hwnd) {
+        let menu = unsafe { CreatePopupMenu() };
+        if menu.is_null() {
+            return;
+        }
+
+        let exit_label: Vec<u16> = "退出 Jump1".encode_utf16().chain(Some(0)).collect();
+        unsafe { AppendMenuW(menu, MF_STRING, TRAY_EXIT_COMMAND, exit_label.as_ptr()) };
+
+        let mut cursor = POINT { x: 0, y: 0 };
+        let selected = if unsafe { GetCursorPos(&mut cursor) } != 0 {
+            unsafe { SetForegroundWindow(hwnd) };
+            unsafe {
+                TrackPopupMenu(
+                    menu,
+                    TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                    cursor.x,
+                    cursor.y,
+                    0,
+                    hwnd,
+                    std::ptr::null(),
+                )
+            }
+        } else {
+            0
+        };
+
+        unsafe {
+            PostMessageW(hwnd, WM_NULL, 0, 0);
+            DestroyMenu(menu);
+            if selected as usize == TRAY_EXIT_COMMAND {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
+        }
     }
 
     pub(super) fn hide_panel_window(window: &gpui_kit::Window) {
@@ -1245,7 +1439,12 @@ fn is_chinese_locale(locale: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn scan_windows_shortcuts(root: &Path, depth: usize, apps: &mut Vec<ApplicationEntry>) {
+fn scan_windows_shortcuts(
+    root: &Path,
+    depth: usize,
+    jumbo_icon_list: Option<&windows::Win32::UI::Controls::IImageList>,
+    apps: &mut Vec<ApplicationEntry>,
+) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };
@@ -1263,10 +1462,10 @@ fn scan_windows_shortcuts(root: &Path, depth: usize, apps: &mut Vec<ApplicationE
             if is_windows_excluded_shortcut(&name) {
                 continue;
             }
-            let icon_path = windows_shortcut_icon(&path);
+            let icon_path = windows_shortcut_icon(&path, jumbo_icon_list);
             apps.push(application_entry(name, Vec::new(), path, icon_path));
         } else if depth > 0 && path.is_dir() {
-            scan_windows_shortcuts(&path, depth - 1, apps);
+            scan_windows_shortcuts(&path, depth - 1, jumbo_icon_list, apps);
         }
     }
 }
@@ -1278,7 +1477,38 @@ fn is_windows_excluded_shortcut(name: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_shortcut_icon(shortcut: &Path) -> Option<PathBuf> {
+struct WindowsComApartment {
+    uninitialize: bool,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsComApartment {
+    fn initialize() -> Option<Self> {
+        use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+
+        let result = unsafe { CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32) };
+        if result >= 0 {
+            Some(Self { uninitialize: true })
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsComApartment {
+    fn drop(&mut self) {
+        if self.uninitialize {
+            unsafe { windows_sys::Win32::System::Com::CoUninitialize() };
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_shortcut_icon(
+    shortcut: &Path,
+    jumbo_icon_list: Option<&windows::Win32::UI::Controls::IImageList>,
+) -> Option<PathBuf> {
     use windows_sys::Win32::{
         Graphics::Gdi::{
             BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection,
@@ -1290,18 +1520,21 @@ fn windows_shortcut_icon(shortcut: &Path) -> Option<PathBuf> {
         },
     };
 
-    const ICON_EDGE: i32 = 32;
+    const ICON_EDGE: i32 = 256;
     let metadata = fs::metadata(shortcut).ok()?;
-    let modified = metadata
+    let modified = match metadata
         .modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()?
-        .as_secs();
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+    {
+        Some(modified) => modified.as_secs(),
+        None => return None,
+    };
     let mut hasher = DefaultHasher::new();
     shortcut.hash(&mut hasher);
     metadata.len().hash(&mut hasher);
     modified.hash(&mut hasher);
+    b"shell-jumbo-icon-v1".hash(&mut hasher);
 
     let cache_root = PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
         .join("Jump1")
@@ -1312,7 +1545,10 @@ fn windows_shortcut_icon(shortcut: &Path) -> Option<PathBuf> {
         return Some(icon_path);
     }
 
-    let shortcut_wide: Vec<u16> = shortcut.as_os_str().encode_wide().chain(Some(0)).collect();
+    // Windows filesystem APIs accept mixed separators, but SHGetFileInfoW can
+    // reject those paths. Normalize separators before passing the path to Shell.
+    let shell_path = shortcut.to_string_lossy().replace('/', "\\");
+    let shortcut_wide: Vec<u16> = shell_path.encode_utf16().chain(Some(0)).collect();
     let mut file_info = unsafe { std::mem::zeroed::<SHFILEINFOW>() };
     let result = unsafe {
         SHGetFileInfoW(
@@ -1320,16 +1556,42 @@ fn windows_shortcut_icon(shortcut: &Path) -> Option<PathBuf> {
             0,
             &mut file_info,
             std::mem::size_of::<SHFILEINFOW>() as u32,
-            SHGFI_ICON | SHGFI_LARGEICON,
+            windows_sys::Win32::UI::Shell::SHGFI_SYSICONINDEX,
         )
     };
-    if result == 0 || file_info.hIcon.is_null() {
+    if result == 0 {
         return None;
     }
 
+    let jumbo_icon = jumbo_icon_list.and_then(|image_list| unsafe {
+        image_list
+            .GetIcon(
+                file_info.iIcon,
+                windows::Win32::UI::Controls::ILD_TRANSPARENT.0,
+            )
+            .ok()
+    });
+    let icon = if let Some(icon) = jumbo_icon {
+        icon.0
+    } else {
+        let result = unsafe {
+            SHGetFileInfoW(
+                shortcut_wide.as_ptr(),
+                0,
+                &mut file_info,
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                SHGFI_ICON | SHGFI_LARGEICON,
+            )
+        };
+        if result == 0 || file_info.hIcon.is_null() {
+            return None;
+        }
+        file_info.hIcon
+    };
+
     let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
     if dc.is_null() {
-        unsafe { DestroyIcon(file_info.hIcon) };
+        unsafe { DestroyIcon(icon) };
         return None;
     }
 
@@ -1361,7 +1623,7 @@ fn windows_shortcut_icon(shortcut: &Path) -> Option<PathBuf> {
         }
         unsafe {
             DeleteDC(dc);
-            DestroyIcon(file_info.hIcon);
+            DestroyIcon(icon);
         }
         return None;
     }
@@ -1374,7 +1636,7 @@ fn windows_shortcut_icon(shortcut: &Path) -> Option<PathBuf> {
             dc,
             0,
             0,
-            file_info.hIcon,
+            icon,
             ICON_EDGE,
             ICON_EDGE,
             0,
@@ -1400,16 +1662,14 @@ fn windows_shortcut_icon(shortcut: &Path) -> Option<PathBuf> {
     unsafe {
         DeleteObject(bitmap as HGDIOBJ);
         DeleteDC(dc);
-        DestroyIcon(file_info.hIcon);
+        DestroyIcon(icon);
     }
 
     if drawn == 0 {
         return None;
     }
-    image::RgbaImage::from_raw(ICON_EDGE as u32, ICON_EDGE as u32, rgba)?
-        .save(&icon_path)
-        .ok()?;
-    Some(icon_path)
+    let image = image::RgbaImage::from_raw(ICON_EDGE as u32, ICON_EDGE as u32, rgba)?;
+    image.save(&icon_path).ok().map(|()| icon_path)
 }
 
 fn application_entry(
