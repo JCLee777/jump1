@@ -116,9 +116,10 @@ fn result_row(
     let title = i18n.result_title(&result.title);
     let detail = i18n.result_detail(&result.detail);
     let kind = i18n.result_kind(result.kind);
+    let compact = result.kind == ResultKind::Application;
     let action = result.action;
 
-    result_row_shell(index, selected, icon, title, detail, kind, theme)
+    result_row_shell(index, selected, icon, title, detail, kind, compact, theme)
         .on_click(move |_, window, cx| on_activate(action.clone(), window, cx))
 }
 
@@ -334,6 +335,7 @@ fn result_row_shell(
     title: String,
     detail: String,
     kind: &'static str,
+    compact: bool,
     theme: &AppTheme,
 ) -> Stateful<Div> {
     let colors = theme.semantic.colors;
@@ -346,7 +348,36 @@ fn result_row_shell(
     let hover_background = theme.materials.hover;
     let control_background = theme.materials.control;
 
-    div()
+    let mut text = div()
+        .flex_1()
+        .min_w(px(0.))
+        .flex()
+        .flex_col()
+        .gap(spacing.xxs)
+        .child(
+            div()
+                .text_size(typography.sm.size)
+                .line_height(typography.sm.line_height)
+                .font_weight(FontWeight::MEDIUM)
+                .text_ellipsis()
+                .child(title),
+        );
+    if !compact {
+        text = text.child(
+            div()
+                .text_size(typography.xs.size)
+                .line_height(typography.xs.line_height)
+                .text_color(if selected {
+                    selected_foreground
+                } else {
+                    colors.muted_foreground
+                })
+                .text_ellipsis()
+                .child(detail),
+        );
+    }
+
+    let mut row = div()
         .id(format!("launcher-result-{index}"))
         .w_full()
         .h(theme.metrics.result_row_height)
@@ -388,35 +419,9 @@ fn result_row_shell(
                 })
                 .child(icon),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .flex()
-                .flex_col()
-                .gap(spacing.xxs)
-                .child(
-                    div()
-                        .text_size(typography.sm.size)
-                        .line_height(typography.sm.line_height)
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_ellipsis()
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_size(typography.xs.size)
-                        .line_height(typography.xs.line_height)
-                        .text_color(if selected {
-                            selected_foreground
-                        } else {
-                            colors.muted_foreground
-                        })
-                        .text_ellipsis()
-                        .child(detail),
-                ),
-        )
-        .child(
+        .child(text);
+    if !compact {
+        row = row.child(
             div()
                 .px(spacing.sm)
                 .py(spacing.xxs)
@@ -434,5 +439,7 @@ fn result_row_shell(
                     colors.muted_foreground
                 })
                 .child(kind),
-        )
+        );
+    }
+    row
 }

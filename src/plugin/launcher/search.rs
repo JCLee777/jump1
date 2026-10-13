@@ -49,22 +49,7 @@ pub fn search(query: &str, apps: &[ApplicationEntry]) -> Vec<SearchResult> {
             .filter_map(|app| {
                 app.search_terms
                     .iter()
-                    .filter_map(|term| {
-                        let candidate = if term.contains(&lowered) {
-                            lowered.as_str()
-                        } else if !normalized.is_empty() && term.contains(&normalized) {
-                            normalized.as_str()
-                        } else {
-                            return None;
-                        };
-                        Some(if term == candidate {
-                            0
-                        } else if term.starts_with(candidate) {
-                            1
-                        } else {
-                            2
-                        })
-                    })
+                    .filter_map(|term| application_match_score(term, &lowered, &normalized))
                     .min()
                     .map(|score| (score, app))
             })
@@ -81,7 +66,7 @@ pub fn search(query: &str, apps: &[ApplicationEntry]) -> Vec<SearchResult> {
             .take(20)
             .map(|(_, app)| SearchResult {
                 title: ResultTitle::Application(app.name.clone()),
-                detail: ResultDetail::Literal(app.path.display().to_string()),
+                detail: ResultDetail::Literal(String::new()),
                 kind: ResultKind::Application,
                 icon_path: app.icon_path.clone(),
                 action: CommandAction::Application(app.clone()),
@@ -124,6 +109,45 @@ pub fn search(query: &str, apps: &[ApplicationEntry]) -> Vec<SearchResult> {
     }
 
     results
+}
+
+fn application_match_score(term: &str, lowered_query: &str, normalized_query: &str) -> Option<u8> {
+    if lowered_query.is_empty() {
+        return None;
+    }
+
+    let normalized_term = text_search::normalize(term);
+    if term == lowered_query
+        || (!normalized_query.is_empty() && normalized_term == normalized_query)
+    {
+        return Some(0);
+    }
+    if term.starts_with(lowered_query)
+        || (!normalized_query.is_empty() && normalized_term.starts_with(normalized_query))
+    {
+        return Some(1);
+    }
+
+    let token_prefix_match = term
+        .split(|character: char| !character.is_alphanumeric())
+        .any(|token| token.starts_with(lowered_query));
+    if token_prefix_match {
+        return Some(2);
+    }
+
+    // Short queries are common launcher prefixes. Matching them in the middle
+    // of words makes unrelated shortcuts such as “Administrative Tools” noisy.
+    if lowered_query.chars().count() <= 2 {
+        return None;
+    }
+
+    if term.contains(lowered_query)
+        || (!normalized_query.is_empty() && normalized_term.contains(normalized_query))
+    {
+        Some(3)
+    } else {
+        None
+    }
 }
 
 fn expand_path(query: &str) -> Option<PathBuf> {

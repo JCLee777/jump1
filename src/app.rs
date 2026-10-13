@@ -51,12 +51,12 @@ pub(crate) struct Jump1Shell {
     recording_shortcut: Option<u64>,
     editing_shortcut_query: Option<u64>,
     shortcut_conflicts: Vec<u64>,
-    previous_application: Option<i32>,
+    previous_application: Option<platform::ApplicationTarget>,
 }
 
 impl Jump1Shell {
     pub(crate) fn new(
-        previous_application: Option<i32>,
+        previous_application: Option<platform::ApplicationTarget>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -381,8 +381,8 @@ impl Jump1Shell {
             loop {
                 timer.timer(Duration::from_millis(700)).await;
                 let Ok(()) = this.update(cx, |shell, cx| {
-                    if let Some(pid) = platform::frontmost_application_pid() {
-                        shell.previous_application = Some(pid);
+                    if let Some(target) = platform::frontmost_application() {
+                        shell.previous_application = Some(target);
                     }
                     let changed = cx
                         .read_from_clipboard()
@@ -693,8 +693,8 @@ impl Jump1Shell {
             self.hide_panel(window, cx);
             return;
         }
-        if let Some(pid) = platform::frontmost_application_pid() {
-            self.previous_application = Some(pid);
+        if let Some(target) = platform::frontmost_application() {
+            self.previous_application = Some(target);
         }
         self.recording_shortcut = None;
         self.editing_shortcut_query = None;
@@ -706,6 +706,7 @@ impl Jump1Shell {
         if !window.is_window_active() {
             platform::center_window_on_pointer(window);
         }
+        platform::show_panel_window(window);
         cx.activate(true);
         window.activate_window();
     }
@@ -919,34 +920,78 @@ impl Jump1Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let mut clipboard_written = false;
         if let Some(native) = &selection.native {
-            if let Err(error) = platform::write_native_clipboard(native) {
-                eprintln!("failed to write native clipboard: {error}");
-                cx.write_to_clipboard(selection.item.clone());
+            match platform::write_native_clipboard(native) {
+                Ok(()) => clipboard_written = true,
+                Err(error) => eprintln!("failed to write native clipboard: {error}"),
             }
-        } else {
+        }
+        if !clipboard_written {
+            #[cfg(target_os = "windows")]
+            {
+                let file_paths = selection
+                    .item
+                    .entries()
+                    .iter()
+                    .find_map(|entry| match entry {
+                        ClipboardEntry::ExternalPaths(paths) if !paths.paths().is_empty() => {
+                            Some(paths.paths().to_vec())
+                        }
+                        _ => None,
+                    });
+                if let Some(paths) = file_paths {
+                    if let Err(error) = platform::write_file_paths_to_clipboard(window, &paths) {
+                        eprintln!("failed to write file paths to clipboard: {error}");
+                        return;
+                    }
+                } else {
+                    cx.write_to_clipboard(selection.item.clone());
+                    if let Some(image) =
+                        selection
+                            .item
+                            .entries()
+                            .iter()
+                            .find_map(|entry| match entry {
+                                ClipboardEntry::Image(image) => Some(image),
+                                _ => None,
+                            })
+                    {
+                        if let Err(error) = platform::write_image_to_clipboard(window, image) {
+                            eprintln!("failed to add a Windows bitmap clipboard format: {error}");
+                        }
+                    }
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
             cx.write_to_clipboard(selection.item.clone());
         }
         self.plugins.ignore_clipboard_item(Some(selection.item));
-        self.hide_panel(window, cx);
         let target_application = self.previous_application;
-        if let Some(pid) = target_application {
-            if let Err(error) = platform::activate_application(pid) {
+        #[cfg(target_os = "windows")]
+        if let Some(target) = target_application {
+            if let Err(error) = platform::activate_application(target) {
+                eprintln!("failed to restore previous application: {error}");
+            }
+        }
+        self.hide_panel(window, cx);
+        #[cfg(not(target_os = "windows"))]
+        if let Some(target) = target_application {
+            if let Err(error) = platform::activate_application(target) {
                 eprintln!("failed to restore previous application: {error}");
             }
         }
         let timer = cx.background_executor().clone();
         cx.spawn(async move |_, _| {
-            if let Some(pid) = target_application {
-                // Application activation is asynchronous on macOS. Observe the
-                // real frontmost process instead of relying on a fixed delay.
+            if let Some(target) = target_application {
+                // Restore the exact window that owned focus before the panel opened.
                 let mut restored = false;
-                for _ in 0..24 {
-                    if platform::frontmost_application_pid() == Some(pid) {
+                for _ in 0..50 {
+                    if platform::is_frontmost_application(target) {
                         restored = true;
                         break;
                     }
-                    timer.timer(Duration::from_millis(5)).await;
+                    timer.timer(Duration::from_millis(10)).await;
                 }
                 if !restored {
                     eprintln!("paste target did not become the frontmost application");
@@ -967,6 +1012,7 @@ impl Jump1Shell {
             self.plugins.leave_clipboard_page(Some(window), cx);
         }
         cx.hide();
+        platform::hide_panel_window(window);
     }
 }
 

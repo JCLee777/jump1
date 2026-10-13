@@ -15,6 +15,14 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+#[cfg(target_os = "windows")]
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    os::windows::ffi::OsStrExt,
+    time::UNIX_EPOCH,
+};
+
 use crate::{plugin::protocol::ApplicationEntry, text_search};
 
 #[derive(Clone, Debug)]
@@ -31,6 +39,13 @@ pub struct NativeClipboardItem {
 pub struct NativeClipboardRepresentation {
     pub type_name: String,
     pub data: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ApplicationTarget {
+    process_id: i32,
+    #[cfg(target_os = "windows")]
+    window: isize,
 }
 
 /// Decode a bounded preview directly from an encoded image without allocating
@@ -203,6 +218,8 @@ pub fn discover_apps() -> Vec<ApplicationEntry> {
                 );
             }
         }
+        let mut seen_names = std::collections::HashSet::new();
+        apps.retain(|app| seen_names.insert(text_search::normalize(&app.name)));
     }
 
     apps.sort_by(|left, right| left.path.cmp(&right.path));
@@ -389,8 +406,15 @@ pub fn launch_app(app: &ApplicationEntry) -> Result<(), String> {
             .map_err(|error| error.to_string());
     }
 
-    #[cfg(not(target_os = "linux"))]
-    open_path(&app.path)
+    #[cfg(target_os = "windows")]
+    {
+        return windows_platform::launch_shortcut(&app.path);
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        open_path(&app.path)
+    }
 }
 
 pub fn trigger_copy() -> Result<(), String> {
@@ -560,40 +584,96 @@ pub fn write_native_clipboard(clipboard: &NativeClipboard) -> Result<(), String>
     }
 }
 
-pub fn frontmost_application_pid() -> Option<i32> {
+pub(crate) fn frontmost_application() -> Option<ApplicationTarget> {
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::NSWorkspace;
 
         let application = NSWorkspace::sharedWorkspace().frontmostApplication()?;
         let pid = application.processIdentifier();
-        return (pid > 0 && pid != std::process::id() as i32).then_some(pid);
+        return (pid > 0 && pid != std::process::id() as i32)
+            .then_some(ApplicationTarget { process_id: pid });
     }
 
-    #[cfg(not(target_os = "macos"))]
-    None
+    #[cfg(target_os = "windows")]
+    {
+        return windows_platform::frontmost_application();
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        None
+    }
 }
 
-pub fn activate_application(pid: i32) -> Result<(), String> {
+pub(crate) fn is_frontmost_application(target: ApplicationTarget) -> bool {
+    frontmost_application().is_some_and(|active| active.process_id == target.process_id)
+}
+
+pub(crate) fn activate_application(target: ApplicationTarget) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 
-        let application = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
-            .ok_or_else(|| format!("application process {pid} is no longer running"))?;
+        let application =
+            NSRunningApplication::runningApplicationWithProcessIdentifier(target.process_id)
+                .ok_or_else(|| {
+                    format!(
+                        "application process {} is no longer running",
+                        target.process_id
+                    )
+                })?;
         if application.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows) {
             return Ok(());
         }
         return Err(format!(
-            "macOS refused to activate application process {pid}"
+            "macOS refused to activate application process {}",
+            target.process_id
         ));
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        let _ = pid;
-        Ok(())
+        return windows_platform::activate_application(target);
     }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = target;
+        Err("application activation is unavailable on this platform".into())
+    }
+}
+
+pub(crate) fn hide_panel_window(window: &gpui_kit::Window) {
+    #[cfg(target_os = "windows")]
+    windows_platform::hide_panel_window(window);
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = window;
+}
+
+pub(crate) fn show_panel_window(window: &gpui_kit::Window) {
+    #[cfg(target_os = "windows")]
+    windows_platform::show_panel_window(window);
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = window;
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn write_file_paths_to_clipboard(
+    window: &gpui_kit::Window,
+    paths: &[PathBuf],
+) -> Result<(), String> {
+    windows_platform::write_file_paths_to_clipboard(window, paths)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn write_image_to_clipboard(
+    window: &gpui_kit::Window,
+    image: &gpui_kit::Image,
+) -> Result<(), String> {
+    windows_platform::write_image_to_clipboard(window, image)
 }
 
 pub fn launch_at_login_enabled() -> bool {
@@ -699,6 +779,356 @@ fn macos_trigger_shortcut(virtual_key: u16) -> Result<(), String> {
         CFRelease(source);
     }
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+mod windows_platform {
+    use std::{
+        ffi::c_void,
+        io::Cursor,
+        os::windows::{ffi::OsStrExt, process::CommandExt},
+        path::{Path, PathBuf},
+        process::Command,
+    };
+
+    use gpui_kit::{Image, ImageFormat};
+    use image::ImageDecoder as _;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    use super::ApplicationTarget;
+
+    type Hwnd = *mut c_void;
+
+    const CF_DIB: u32 = 8;
+    const CF_HDROP: u32 = 15;
+    const GMEM_MOVEABLE: u32 = 0x0002;
+    const GMEM_ZEROINIT: u32 = 0x0040;
+    const MAX_DIB_BYTES: usize = 256 * 1024 * 1024;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const SW_HIDE: i32 = 0;
+    const SW_RESTORE: i32 = 9;
+
+    #[repr(C)]
+    struct DropFiles {
+        p_files: u32,
+        point_x: i32,
+        point_y: i32,
+        f_non_client: i32,
+        f_wide: i32,
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetForegroundWindow() -> Hwnd;
+        fn GetWindowThreadProcessId(hwnd: Hwnd, process_id: *mut u32) -> u32;
+        fn IsWindow(hwnd: Hwnd) -> i32;
+        fn IsIconic(hwnd: Hwnd) -> i32;
+        fn ShowWindow(hwnd: Hwnd, command: i32) -> i32;
+        fn SetForegroundWindow(hwnd: Hwnd) -> i32;
+        fn OpenClipboard(hwnd: Hwnd) -> i32;
+        fn EmptyClipboard() -> i32;
+        fn CloseClipboard() -> i32;
+        fn SetClipboardData(format: u32, memory: Hwnd) -> Hwnd;
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GlobalAlloc(flags: u32, bytes: usize) -> Hwnd;
+        fn GlobalLock(memory: Hwnd) -> Hwnd;
+        fn GlobalUnlock(memory: Hwnd) -> i32;
+        fn GlobalFree(memory: Hwnd) -> Hwnd;
+    }
+
+    pub(super) fn frontmost_application() -> Option<ApplicationTarget> {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd.is_null() {
+            return None;
+        }
+
+        let mut process_id = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, &mut process_id) };
+        if process_id == 0 || process_id == std::process::id() {
+            return None;
+        }
+
+        Some(ApplicationTarget {
+            process_id: i32::try_from(process_id).ok()?,
+            window: hwnd as isize,
+        })
+    }
+
+    pub(super) fn activate_application(target: ApplicationTarget) -> Result<(), String> {
+        let hwnd = target.window as Hwnd;
+        if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
+            return Err("the previous application window no longer exists".into());
+        }
+
+        let mut process_id = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, &mut process_id) };
+        if i32::try_from(process_id).ok() != Some(target.process_id) {
+            return Err("the previous application window has changed owners".into());
+        }
+
+        unsafe {
+            if IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
+            }
+            if SetForegroundWindow(hwnd) == 0 && GetForegroundWindow() != hwnd {
+                return Err(format!(
+                    "Windows refused to activate application process {}",
+                    target.process_id
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn hide_panel_window(window: &gpui_kit::Window) {
+        if let Some(hwnd) = window_hwnd(window) {
+            unsafe { ShowWindow(hwnd, SW_HIDE) };
+        }
+    }
+
+    pub(super) fn show_panel_window(window: &gpui_kit::Window) {
+        if let Some(hwnd) = window_hwnd(window) {
+            unsafe { ShowWindow(hwnd, SW_RESTORE) };
+        }
+    }
+
+    pub(super) fn launch_shortcut(path: &Path) -> Result<(), String> {
+        Command::new("cmd.exe")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["/C", "start", ""])
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| {
+                format!(
+                    "Windows could not launch shortcut {}: {error}",
+                    path.display()
+                )
+            })
+    }
+
+    pub(super) fn write_file_paths_to_clipboard(
+        window: &gpui_kit::Window,
+        paths: &[PathBuf],
+    ) -> Result<(), String> {
+        if paths.is_empty() {
+            return Err("the file clipboard item contains no paths".into());
+        }
+        let hwnd = window_hwnd(window)
+            .ok_or_else(|| "could not access the Jump1 window handle".to_string())?;
+
+        let mut file_names = Vec::new();
+        for path in paths {
+            file_names.extend(path.as_os_str().encode_wide());
+            file_names.push(0);
+        }
+        file_names.push(0);
+
+        let header = DropFiles {
+            p_files: std::mem::size_of::<DropFiles>() as u32,
+            point_x: 0,
+            point_y: 0,
+            f_non_client: 0,
+            f_wide: 1,
+        };
+        let header_size = std::mem::size_of::<DropFiles>();
+        let file_names_size = file_names
+            .len()
+            .checked_mul(std::mem::size_of::<u16>())
+            .ok_or_else(|| "file clipboard data is too large".to_string())?;
+        let allocation_size = header_size
+            .checked_add(file_names_size)
+            .ok_or_else(|| "file clipboard data is too large".to_string())?;
+        let memory = unsafe { GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, allocation_size) };
+        if memory.is_null() {
+            return Err(last_error("could not allocate file clipboard data"));
+        }
+
+        let locked = unsafe { GlobalLock(memory) };
+        if locked.is_null() {
+            let error = last_error("could not lock file clipboard data");
+            unsafe { GlobalFree(memory) };
+            return Err(error);
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                (&header as *const DropFiles).cast::<u8>(),
+                locked.cast::<u8>(),
+                header_size,
+            );
+            std::ptr::copy_nonoverlapping(
+                file_names.as_ptr().cast::<u8>(),
+                locked.cast::<u8>().add(header_size),
+                file_names_size,
+            );
+            GlobalUnlock(memory);
+        }
+
+        if unsafe { OpenClipboard(hwnd) } == 0 {
+            let error = last_error("could not open the Windows clipboard");
+            unsafe { GlobalFree(memory) };
+            return Err(error);
+        }
+
+        let result = if unsafe { EmptyClipboard() } == 0 {
+            Err(last_error("could not clear the Windows clipboard"))
+        } else if unsafe { SetClipboardData(CF_HDROP, memory) }.is_null() {
+            Err(last_error(
+                "could not write file paths to the Windows clipboard",
+            ))
+        } else {
+            Ok(())
+        };
+        unsafe { CloseClipboard() };
+
+        if result.is_err() {
+            unsafe { GlobalFree(memory) };
+        }
+        result
+    }
+
+    pub(super) fn write_image_to_clipboard(
+        window: &gpui_kit::Window,
+        image: &Image,
+    ) -> Result<(), String> {
+        let dib = encode_image_as_dib(image)?;
+        let hwnd = window_hwnd(window)
+            .ok_or_else(|| "could not access the Jump1 window handle".to_string())?;
+        let memory = unsafe { GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, dib.len()) };
+        if memory.is_null() {
+            return Err(last_error("could not allocate bitmap clipboard data"));
+        }
+
+        let locked = unsafe { GlobalLock(memory) };
+        if locked.is_null() {
+            let error = last_error("could not lock bitmap clipboard data");
+            unsafe { GlobalFree(memory) };
+            return Err(error);
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(dib.as_ptr(), locked.cast::<u8>(), dib.len());
+            GlobalUnlock(memory);
+        }
+
+        if unsafe { OpenClipboard(hwnd) } == 0 {
+            let error = last_error("could not open the Windows clipboard");
+            unsafe { GlobalFree(memory) };
+            return Err(error);
+        }
+
+        // GPUI already wrote the original image format. Add CF_DIB so applications
+        // that only accept the standard Windows bitmap format can paste it too.
+        let result = if unsafe { SetClipboardData(CF_DIB, memory) }.is_null() {
+            Err(last_error(
+                "could not add a bitmap to the Windows clipboard",
+            ))
+        } else {
+            Ok(())
+        };
+        unsafe { CloseClipboard() };
+
+        if result.is_err() {
+            unsafe { GlobalFree(memory) };
+        }
+        result
+    }
+
+    fn encode_image_as_dib(image: &Image) -> Result<Vec<u8>, String> {
+        let format = match image.format {
+            ImageFormat::Png => image::ImageFormat::Png,
+            ImageFormat::Jpeg => image::ImageFormat::Jpeg,
+            ImageFormat::Webp => image::ImageFormat::WebP,
+            ImageFormat::Gif => image::ImageFormat::Gif,
+            ImageFormat::Bmp => image::ImageFormat::Bmp,
+            ImageFormat::Tiff => image::ImageFormat::Tiff,
+            ImageFormat::Ico => image::ImageFormat::Ico,
+            ImageFormat::Pnm => image::ImageFormat::Pnm,
+            ImageFormat::Svg => return Err("SVG images cannot be written as CF_DIB".into()),
+        };
+        let mut decoder = image::ImageReader::with_format(Cursor::new(image.bytes()), format)
+            .into_decoder()
+            .map_err(|error| format!("could not decode clipboard image: {error}"))?;
+        let (width, height) = decoder.dimensions();
+        let _ = dib_layout(width, height)?;
+
+        let orientation = decoder
+            .orientation()
+            .map_err(|error| format!("could not read clipboard image orientation: {error}"))?;
+        let mut decoded = image::DynamicImage::from_decoder(decoder)
+            .map_err(|error| format!("could not decode clipboard image: {error}"))?;
+        decoded.apply_orientation(orientation);
+        let rgb = decoded.to_rgb8();
+        let width = rgb.width();
+        let height = rgb.height();
+        let (row_bytes, pixel_bytes, dib_size) = dib_layout(width, height)?;
+
+        // CF_DIB stores a BITMAPINFOHEADER followed by bottom-up, padded BGR rows.
+        let mut dib = vec![0_u8; dib_size];
+        dib[0..4].copy_from_slice(&40_u32.to_le_bytes());
+        dib[4..8].copy_from_slice(&(width as i32).to_le_bytes());
+        dib[8..12].copy_from_slice(&(height as i32).to_le_bytes());
+        dib[12..14].copy_from_slice(&1_u16.to_le_bytes());
+        dib[14..16].copy_from_slice(&24_u16.to_le_bytes());
+        dib[16..20].copy_from_slice(&0_u32.to_le_bytes()); // BI_RGB
+        dib[20..24].copy_from_slice(&(pixel_bytes as u32).to_le_bytes());
+
+        let source = rgb.as_raw();
+        for source_y in 0..height as usize {
+            let target_y = height as usize - source_y - 1;
+            let source_start = source_y * width as usize * 3;
+            let target_start = 40 + target_y * row_bytes;
+            for x in 0..width as usize {
+                let source_pixel = source_start + x * 3;
+                let target_pixel = target_start + x * 3;
+                dib[target_pixel] = source[source_pixel + 2];
+                dib[target_pixel + 1] = source[source_pixel + 1];
+                dib[target_pixel + 2] = source[source_pixel];
+            }
+        }
+        Ok(dib)
+    }
+
+    fn dib_layout(width: u32, height: u32) -> Result<(usize, usize, usize), String> {
+        if width == 0 || height == 0 || width > i32::MAX as u32 || height > i32::MAX as u32 {
+            return Err("clipboard image dimensions are not supported by Windows".into());
+        }
+
+        let _decoded_bytes = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .filter(|bytes| *bytes <= MAX_DIB_BYTES)
+            .ok_or_else(|| "clipboard image dimensions are too large".to_string())?;
+        let row_bytes = (width as usize)
+            .checked_mul(3)
+            .and_then(|value| value.checked_add(3))
+            .map(|value| value & !3)
+            .ok_or_else(|| "clipboard image dimensions are too large".to_string())?;
+        let pixel_bytes = row_bytes
+            .checked_mul(height as usize)
+            .ok_or_else(|| "clipboard image dimensions are too large".to_string())?;
+        let dib_size = 40_usize
+            .checked_add(pixel_bytes)
+            .filter(|size| *size <= MAX_DIB_BYTES && *size <= u32::MAX as usize)
+            .ok_or_else(|| {
+                "clipboard image is too large for the Windows bitmap format".to_string()
+            })?;
+        Ok((row_bytes, pixel_bytes, dib_size))
+    }
+
+    fn window_hwnd(window: &gpui_kit::Window) -> Option<Hwnd> {
+        let handle = HasWindowHandle::window_handle(window).ok()?;
+        match handle.as_raw() {
+            RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as Hwnd),
+            _ => None,
+        }
+    }
+
+    fn last_error(action: &str) -> String {
+        format!("{action}: {}", std::io::Error::last_os_error())
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -830,11 +1260,156 @@ fn scan_windows_shortcuts(root: &Path, depth: usize, apps: &mut Vec<ApplicationE
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            apps.push(application_entry(name, Vec::new(), path, None));
+            if is_windows_excluded_shortcut(&name) {
+                continue;
+            }
+            let icon_path = windows_shortcut_icon(&path);
+            apps.push(application_entry(name, Vec::new(), path, icon_path));
         } else if depth > 0 && path.is_dir() {
             scan_windows_shortcuts(&path, depth - 1, apps);
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn is_windows_excluded_shortcut(name: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    name.starts_with("uninstall") || name.starts_with("卸载")
+}
+
+#[cfg(target_os = "windows")]
+fn windows_shortcut_icon(shortcut: &Path) -> Option<PathBuf> {
+    use windows_sys::Win32::{
+        Graphics::Gdi::{
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection,
+            DIB_RGB_COLORS, DeleteDC, DeleteObject, HGDIOBJ, SelectObject,
+        },
+        UI::{
+            Shell::{SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGetFileInfoW},
+            WindowsAndMessaging::{DI_NORMAL, DestroyIcon, DrawIconEx},
+        },
+    };
+
+    const ICON_EDGE: i32 = 32;
+    let metadata = fs::metadata(shortcut).ok()?;
+    let modified = metadata
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let mut hasher = DefaultHasher::new();
+    shortcut.hash(&mut hasher);
+    metadata.len().hash(&mut hasher);
+    modified.hash(&mut hasher);
+
+    let cache_root = PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
+        .join("Jump1")
+        .join("icons");
+    fs::create_dir_all(&cache_root).ok()?;
+    let icon_path = cache_root.join(format!("{:016x}.png", hasher.finish()));
+    if icon_path.is_file() {
+        return Some(icon_path);
+    }
+
+    let shortcut_wide: Vec<u16> = shortcut.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut file_info = unsafe { std::mem::zeroed::<SHFILEINFOW>() };
+    let result = unsafe {
+        SHGetFileInfoW(
+            shortcut_wide.as_ptr(),
+            0,
+            &mut file_info,
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_ICON | SHGFI_LARGEICON,
+        )
+    };
+    if result == 0 || file_info.hIcon.is_null() {
+        return None;
+    }
+
+    let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
+    if dc.is_null() {
+        unsafe { DestroyIcon(file_info.hIcon) };
+        return None;
+    }
+
+    let mut bitmap_info = BITMAPINFO::default();
+    bitmap_info.bmiHeader = BITMAPINFOHEADER {
+        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+        biWidth: ICON_EDGE,
+        biHeight: -ICON_EDGE,
+        biPlanes: 1,
+        biBitCount: 32,
+        biCompression: BI_RGB,
+        biSizeImage: (ICON_EDGE * ICON_EDGE * 4) as u32,
+        ..BITMAPINFOHEADER::default()
+    };
+    let mut bits = std::ptr::null_mut();
+    let bitmap = unsafe {
+        CreateDIBSection(
+            dc,
+            &bitmap_info,
+            DIB_RGB_COLORS,
+            &mut bits,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if bitmap.is_null() || bits.is_null() {
+        if !bitmap.is_null() {
+            unsafe { DeleteObject(bitmap as HGDIOBJ) };
+        }
+        unsafe {
+            DeleteDC(dc);
+            DestroyIcon(file_info.hIcon);
+        }
+        return None;
+    }
+
+    let previous = unsafe { SelectObject(dc, bitmap as HGDIOBJ) };
+    let byte_len = (ICON_EDGE * ICON_EDGE * 4) as usize;
+    unsafe { std::ptr::write_bytes(bits.cast::<u8>(), 0, byte_len) };
+    let drawn = unsafe {
+        DrawIconEx(
+            dc,
+            0,
+            0,
+            file_info.hIcon,
+            ICON_EDGE,
+            ICON_EDGE,
+            0,
+            std::ptr::null_mut(),
+            DI_NORMAL,
+        )
+    };
+
+    let mut rgba = unsafe { std::slice::from_raw_parts(bits.cast::<u8>(), byte_len) }.to_vec();
+    for pixel in rgba.chunks_exact_mut(4) {
+        let alpha = u16::from(pixel[3]);
+        pixel.swap(0, 2);
+        if alpha > 0 && alpha < 255 {
+            for channel in &mut pixel[..3] {
+                *channel = ((u16::from(*channel) * 255 / alpha).min(255)) as u8;
+            }
+        }
+    }
+
+    if !previous.is_null() && previous as isize != -1 {
+        unsafe { SelectObject(dc, previous) };
+    }
+    unsafe {
+        DeleteObject(bitmap as HGDIOBJ);
+        DeleteDC(dc);
+        DestroyIcon(file_info.hIcon);
+    }
+
+    if drawn == 0 {
+        return None;
+    }
+    image::RgbaImage::from_raw(ICON_EDGE as u32, ICON_EDGE as u32, rgba)?
+        .save(&icon_path)
+        .ok()?;
+    Some(icon_path)
 }
 
 fn application_entry(

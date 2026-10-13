@@ -3612,6 +3612,7 @@ dependencies = [
  "serde_yaml_ng",
  "similar",
  "smappservice-rs",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

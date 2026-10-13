@@ -22,7 +22,7 @@ pub fn run() {
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx: &mut App| {
             gpui_kit::init(cx);
-            let previous_application = platform::frontmost_application_pid();
+            let previous_application = platform::frontmost_application();
             cx.activate(true);
             let preferences = state::Preferences::load();
             match preferences.theme {
