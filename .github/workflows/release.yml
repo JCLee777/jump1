@@ -9,9 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build and publish Apple Silicon macOS release
-    runs-on: macos-15
+  validate:
+    name: Validate tag and release notes
+    runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -57,6 +57,22 @@ jobs:
             exit 1
           fi
 
+      - name: Save release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+          retention-days: 1
+
+  build-macos:
+    name: Build Apple Silicon macOS package
+    needs: validate
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
       - name: Verify Apple Silicon runner
         run: test "$(uname -m)" = arm64
 
@@ -74,28 +90,88 @@ jobs:
       - name: Build ARM64 DMG
         run: CARGO_BUILD_TARGET=aarch64-apple-darwin ./scripts/package-macos.sh
 
-      - name: Skip if this tag was superseded
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-package
+          path: dist/Jump1-*-aarch64.dmg
+          if-no-files-found: error
+          retention-days: 1
+
+  build-windows:
+    name: Build Windows x86_64 package
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build portable ZIP
+        shell: pwsh
+        run: ./scripts/package-windows.ps1
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: dist/Jump1-*-x86_64-windows.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub Release
+    needs: [validate, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes
+
+      - name: Download macOS package
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-package
+          path: dist
+
+      - name: Download Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-package
+          path: dist
+
+      - name: Verify tag was not moved
         shell: bash
         run: |
           set -euo pipefail
-          tag_commit="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}^{}" | cut -f 1)"
-          if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
-            echo "This build was superseded by a newer target for $GITHUB_REF_NAME."
-            exit 0
+          remote_tag="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}^{}" | cut -f 1)"
+          if [[ -z "$remote_tag" ]]; then
+            remote_tag="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}" | cut -f 1)"
+          fi
+          if [[ "$remote_tag" != "$GITHUB_SHA" ]]; then
+            echo "The tag no longer points to this release commit; refusing to publish." >&2
+            exit 1
           fi
 
-      - name: Publish GitHub Release
+      - name: Publish immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          asset="dist/Jump1-${version}-aarch64.dmg"
+          set -euo pipefail
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists; published releases are immutable." >&2
             exit 1
           fi
 
-          gh release create "$GITHUB_REF_NAME" "$asset" \
+          gh release create "$GITHUB_REF_NAME" dist/Jump1-* \
             --title "Jump1 $GITHUB_REF_NAME" \
-            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --notes-file release-notes/release-notes.md \
             --verify-tag

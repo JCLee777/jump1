@@ -119,7 +119,7 @@ pub enum PluginEvent {
     },
     InstallUpdate {
         version: String,
-        dmg_path: std::path::PathBuf,
+        package_path: std::path::PathBuf,
     },
     ShortcutBinding(ShortcutBindingEvent),
 }

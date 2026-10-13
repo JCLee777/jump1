@@ -51,15 +51,27 @@ CPU 架构的 DMG。打开 DMG，将 Jump1 拖入 Applications 即可安装。�
 稳定的 bundle designated requirement，覆盖本地构建时不会因二进制哈希变化反复丢失
 辅助功能授权。
 
+## Windows 便携包
+
+在 Windows PowerShell 中执行：
+
+```powershell
+./scripts/package-windows.ps1
+```
+
+脚本会构建 release 版本，在 `dist/` 生成 `Jump1-<版本>-x86_64-windows.zip`。解压后运行
+`Jump1.exe` 即可；应用图标和版本信息会嵌入可执行文件。安装目录需要允许当前用户写入，
+应用内更新才可自动替换文件。
+
 macOS 13 及以上的安装版启动时默认显示面板，失去焦点后隐藏并常驻后台，且不显示 Dock 图标。使用全局快捷键可再次打开面板；
 需要随系统登录启动时，在“设置 → 通用”中开启“登录时启动”。该开关使用 macOS 原生
 登录项，系统要求确认时会打开对应的系统设置页面。
 
 ## 版本与更新
 
-应用版本号以 `Cargo.toml` 为准，版本变更记录维护在 [CHANGELOG.md](CHANGELOG.md)。每个版本的更新说明都应包含简体中文和英文；应用内会根据当前界面语言显示对应内容。发布新版本时，先更新这两处并提交，再推送与版本号一致的 `vMAJOR.MINOR.PATCH` 标签（例如 `v0.2.0`）。GitHub Actions 会校验两种语言的说明，在 Apple Silicon macOS runner 上构建 ARM64 DMG，并将双语变更记录发布到 [GitHub Releases](https://github.com/JCLee777/jump1/releases)。
+应用版本号以 `Cargo.toml` 为准，版本变更记录维护在 [CHANGELOG.md](CHANGELOG.md)。每个版本的更新说明都应包含简体中文和英文；应用内会根据当前界面语言显示对应内容。发布新版本时，先更新这两处并提交，再推送与版本号一致的 `vMAJOR.MINOR.PATCH` 标签（例如 `v0.2.0`）。GitHub Actions 会校验两种语言的说明，在 Apple Silicon macOS runner 上构建 ARM64 DMG、在 Windows runner 上构建 x86_64 ZIP，并将两个安装包和双语变更记录发布到 [GitHub Releases](https://github.com/JCLee777/jump1/releases)。
 
-Apple Silicon Mac 用户可在“设置 → 通用 → 软件更新”检查新版本、查看最新更新说明，并在应用内下载 ARM64 安装包。下载完成后点击“安装并重启”，Jump1 会替换当前应用并重新打开；如果当前安装目录不可写，可从 GitHub Releases 手动更新。其他平台不会显示此更新入口。
+Apple Silicon Mac 和 x86_64 Windows 用户可在“设置 → 通用 → 软件更新”检查新版本、查看最新更新说明，并在应用内下载对应安装包。下载完成后点击“安装并重启”，Jump1 会在用户确认后替换当前应用并重新打开；如果安装目录不可写，可从 GitHub Releases 手动更新。其他平台不会显示此更新入口。
 
 ## 结构
 

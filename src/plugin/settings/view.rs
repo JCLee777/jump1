@@ -350,7 +350,10 @@ pub fn render(
                                             )),
                                     )
                                     .when(
-                                        cfg!(all(target_os = "macos", target_arch = "aarch64")),
+                                        cfg!(any(
+                                            all(target_os = "macos", target_arch = "aarch64"),
+                                            all(target_os = "windows", target_arch = "x86_64")
+                                        )),
                                         |this| {
                                             this.child(update_panel(
                                                 update_status,
@@ -534,10 +537,12 @@ fn update_panel(
                 UpdateButtonAction::Disabled,
             ),
             UpdateStatus::Downloaded {
-                version, dmg_path, ..
+                version,
+                package_path,
+                ..
             } if version == &release.version => (
                 i18n.text(Message::SettingsInstallUpdate),
-                UpdateButtonAction::Install(version.clone(), dmg_path.clone()),
+                UpdateButtonAction::Install(version.clone(), package_path.clone()),
             ),
             UpdateStatus::InstallFailed { version, .. } if version == &release.version => (
                 i18n.text(Message::SettingsOpenRelease),
@@ -581,12 +586,12 @@ fn update_panel(
                         callback(version.clone(), url.clone(), window, cx)
                     })
             }
-            UpdateButtonAction::Install(version, dmg_path) => {
+            UpdateButtonAction::Install(version, package_path) => {
                 let callback = on_install_update.clone();
                 update_button
                     .cursor_pointer()
                     .on_click(move |_, window, cx| {
-                        callback(version.clone(), dmg_path.clone(), window, cx)
+                        callback(version.clone(), package_path.clone(), window, cx)
                     })
             }
             UpdateButtonAction::Disabled => update_button,

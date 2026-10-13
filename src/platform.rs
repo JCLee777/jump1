@@ -824,6 +824,7 @@ mod windows_platform {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::{
         Foundation::{LPARAM, LRESULT, POINT, WPARAM},
+        System::LibraryLoader::GetModuleHandleW,
         UI::{
             Shell::{
                 DefSubclassProc, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
@@ -832,10 +833,11 @@ mod windows_platform {
             },
             WindowsAndMessaging::{
                 AppendMenuW, CreatePopupMenu, DestroyMenu, GetClassLongPtrW, GetCursorPos,
-                ICON_SMALL2, IDI_APPLICATION, LoadIconW, MF_STRING, PostMessageW,
-                RegisterWindowMessageW, SendMessageW, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-                TrackPopupMenu, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_GETICON, WM_LBUTTONUP,
-                WM_NCDESTROY, WM_NULL, WM_RBUTTONUP,
+                GetSystemMetrics, ICON_SMALL2, IDI_APPLICATION, IMAGE_ICON, LR_SHARED, LoadIconW,
+                LoadImageW, MF_STRING, PostMessageW, RegisterWindowMessageW, SM_CXSMICON,
+                SM_CYSMICON, SendMessageW, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP,
+                WM_CLOSE, WM_CONTEXTMENU, WM_GETICON, WM_LBUTTONUP, WM_NCDESTROY, WM_NULL,
+                WM_RBUTTONUP,
             },
         },
     };
@@ -857,6 +859,7 @@ mod windows_platform {
     const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 0x171;
     const TRAY_EXIT_COMMAND: usize = 1;
     const TRAY_SUBCLASS_ID: usize = 0x4A_55_4D_50;
+    const NIN_KEYSELECT_MESSAGE: u32 = NIN_SELECT + 1;
     static TASKBAR_CREATED_MESSAGE: OnceLock<u32> = OnceLock::new();
 
     #[repr(C)]
@@ -874,6 +877,7 @@ mod windows_platform {
         fn GetWindowThreadProcessId(hwnd: Hwnd, process_id: *mut u32) -> u32;
         fn IsWindow(hwnd: Hwnd) -> i32;
         fn IsIconic(hwnd: Hwnd) -> i32;
+        fn IsWindowVisible(hwnd: Hwnd) -> i32;
         fn ShowWindow(hwnd: Hwnd, command: i32) -> i32;
         fn SetForegroundWindow(hwnd: Hwnd) -> i32;
         fn BringWindowToTop(hwnd: Hwnd) -> i32;
@@ -970,6 +974,20 @@ mod windows_platform {
     }
 
     fn tray_icon(hwnd: Hwnd) -> windows_sys::Win32::UI::WindowsAndMessaging::HICON {
+        let app_icon = unsafe {
+            LoadImageW(
+                GetModuleHandleW(std::ptr::null()),
+                1 as *const u16,
+                IMAGE_ICON,
+                GetSystemMetrics(SM_CXSMICON),
+                GetSystemMetrics(SM_CYSMICON),
+                LR_SHARED,
+            ) as windows_sys::Win32::UI::WindowsAndMessaging::HICON
+        };
+        if !app_icon.is_null() {
+            return app_icon;
+        }
+
         let window_icon = unsafe {
             SendMessageW(hwnd, WM_GETICON, ICON_SMALL2 as WPARAM, 0)
                 as windows_sys::Win32::UI::WindowsAndMessaging::HICON
@@ -1000,13 +1018,19 @@ mod windows_platform {
         _reference_data: usize,
     ) -> LRESULT {
         if message == TRAY_CALLBACK_MESSAGE {
-            match lparam as u32 {
-                NIN_SELECT | WM_LBUTTONUP => {
-                    unsafe {
-                        ShowWindow(hwnd, SW_SHOW);
-                        ShowWindow(hwnd, SW_RESTORE);
-                        BringWindowToTop(hwnd);
-                        SetForegroundWindow(hwnd);
+            // With NOTIFYICON_VERSION_4, LOWORD(lParam) is the event and
+            // HIWORD(lParam) is the notification icon ID.
+            match (lparam as u32) & 0xFFFF {
+                NIN_SELECT | NIN_KEYSELECT_MESSAGE | WM_LBUTTONUP => {
+                    let already_visible =
+                        unsafe { IsWindowVisible(hwnd) != 0 && IsIconic(hwnd) == 0 };
+                    if !already_visible {
+                        unsafe {
+                            ShowWindow(hwnd, SW_SHOW);
+                            ShowWindow(hwnd, SW_RESTORE);
+                            BringWindowToTop(hwnd);
+                            SetForegroundWindow(hwnd);
+                        }
                     }
                     return 0;
                 }

@@ -1,15 +1,22 @@
-//! GitHub Release lookup for Apple Silicon macOS builds.
+//! GitHub Release lookup for supported macOS and Windows builds.
 
 use std::cmp::Ordering;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 use std::{
     fs::{self, OpenOptions},
     io::{Read, Write},
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
+};
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use std::{
+    os::unix::fs::OpenOptionsExt,
+    process::{Command, Stdio},
 };
 
 use crate::i18n::Locale;
@@ -111,7 +118,7 @@ pub enum UpdateStatus {
     Downloaded {
         releases: Vec<ReleaseEntry>,
         version: String,
-        dmg_path: std::path::PathBuf,
+        package_path: std::path::PathBuf,
     },
     Installing {
         releases: Vec<ReleaseEntry>,
@@ -124,7 +131,7 @@ pub enum UpdateStatus {
     InstallFailed {
         releases: Vec<ReleaseEntry>,
         version: String,
-        dmg_path: std::path::PathBuf,
+        package_path: std::path::PathBuf,
         error: String,
     },
 }
@@ -170,7 +177,10 @@ fn version_parts(version: &str) -> Option<[u64; 3]> {
     ])
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, String> {
     const MAX_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
     let version_number = version.strip_prefix('v').unwrap_or(version);
@@ -183,9 +193,9 @@ pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, Str
     } else {
         format!("v{version_number}")
     };
-    let expected_asset_path = format!(
-        "/JCLee777/jump1/releases/download/{release_tag}/Jump1-{version_number}-aarch64.dmg"
-    );
+    let asset_name = platform_asset_name(version_number);
+    let expected_asset_path =
+        format!("/JCLee777/jump1/releases/download/{release_tag}/{asset_name}");
     let parsed_url =
         reqwest::Url::parse(download_url).map_err(|error| format!("更新下载地址无效：{error}"))?;
     if parsed_url.scheme() != "https"
@@ -220,7 +230,7 @@ pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, Str
 
     let update_dir = update_directory()?;
     fs::create_dir_all(&update_dir).map_err(|error| format!("无法创建更新目录：{error}"))?;
-    let final_path = update_dir.join(format!("Jump1-{version_number}-aarch64.dmg"));
+    let final_path = update_dir.join(asset_name);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("无法生成临时文件名：{error}"))?
@@ -229,10 +239,11 @@ pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, Str
         ".Jump1-{version_number}-{}-{nonce}.download",
         std::process::id()
     ));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    let mut open_options = OpenOptions::new();
+    open_options.write(true).create_new(true);
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    open_options.mode(0o600);
+    let mut file = open_options
         .open(&temporary_path)
         .map_err(|error| format!("无法创建更新文件：{error}"))?;
 
@@ -279,25 +290,37 @@ pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, Str
     Ok(final_path)
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 fn update_directory() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME").ok_or_else(|| "无法读取用户目录".to_owned())?;
-    Ok(PathBuf::from(home)
-        .join("Library")
-        .join("Application Support")
-        .join("Jump1")
-        .join("Updates"))
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        let home = std::env::var_os("HOME").ok_or_else(|| "无法读取用户目录".to_owned())?;
+        Ok(PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("Jump1")
+            .join("Updates"))
+    }
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        let local_app_data = std::env::var_os("LOCALAPPDATA")
+            .ok_or_else(|| "无法读取本地应用数据目录".to_owned())?;
+        Ok(PathBuf::from(local_app_data).join("Jump1").join("Updates"))
+    }
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub fn install_update_and_restart(dmg_path: &Path, version: &str) -> Result<(), String> {
+pub fn install_update_and_restart(package_path: &Path, version: &str) -> Result<(), String> {
     let version_number = version.strip_prefix('v').unwrap_or(version);
     if !is_stable_release_version(version_number) {
         return Err("更新版本号无效".to_owned());
     }
-    let expected_dmg = format!("Jump1-{version_number}-aarch64.dmg");
-    if dmg_path.file_name().and_then(|name| name.to_str()) != Some(&expected_dmg)
-        || !dmg_path.is_file()
+    let expected_dmg = platform_asset_name(version_number);
+    if package_path.file_name().and_then(|name| name.to_str()) != Some(&expected_dmg)
+        || !package_path.is_file()
     {
         return Err("找不到已下载的更新安装包".to_owned());
     }
@@ -339,7 +362,7 @@ pub fn install_update_and_restart(dmg_path: &Path, version: &str) -> Result<(), 
     installer
         .arg(&script_path)
         .arg(std::process::id().to_string())
-        .arg(dmg_path)
+        .arg(package_path)
         .arg(app_bundle)
         .arg(version_number)
         .arg(&script_path)
@@ -367,6 +390,129 @@ fn ensure_directory_writable(directory: &Path) -> Result<(), String> {
     drop(file);
     fs::remove_file(probe).map_err(|error| format!("无法清理更新检查文件：{error}"))
 }
+
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+pub fn install_update_and_restart(package_path: &Path, version: &str) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let version_number = version.strip_prefix('v').unwrap_or(version);
+    if !is_stable_release_version(version_number) {
+        return Err("更新版本号无效".to_owned());
+    }
+    let expected_package = platform_asset_name(version_number);
+    if package_path.file_name().and_then(|name| name.to_str()) != Some(&expected_package)
+        || !package_path.is_file()
+    {
+        return Err("找不到已下载的更新安装包".to_owned());
+    }
+
+    let executable = std::env::current_exe().map_err(|error| format!("无法定位应用：{error}"))?;
+    let update_dir = update_directory()?;
+    fs::create_dir_all(&update_dir).map_err(|error| format!("无法创建更新目录：{error}"))?;
+    let script_path = update_dir.join(format!("install-update-{}.ps1", std::process::id()));
+    fs::write(&script_path, WINDOWS_UPDATE_INSTALLER_SCRIPT)
+        .map_err(|error| format!("无法准备更新安装器：{error}"))?;
+
+    let mut installer = std::process::Command::new("powershell.exe");
+    installer
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-File")
+        .arg(&script_path)
+        .arg(std::process::id().to_string())
+        .arg(package_path)
+        .arg(&executable)
+        .arg(version_number)
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    if let Err(error) = installer.spawn() {
+        let _ = fs::remove_file(&script_path);
+        return Err(format!("无法启动更新安装器：{error}"));
+    }
+    Ok(())
+}
+
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+const WINDOWS_UPDATE_INSTALLER_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
+$ProcessIdToWait = [int]$args[0]
+$ArchivePath = [System.IO.Path]::GetFullPath($args[1])
+$TargetPath = [System.IO.Path]::GetFullPath($args[2])
+$ExpectedVersion = $args[3]
+$ScriptPath = $MyInvocation.MyCommand.Path
+$TargetDirectory = [System.IO.Path]::GetDirectoryName($TargetPath)
+$Nonce = [guid]::NewGuid().ToString('N')
+$StagedPath = Join-Path $TargetDirectory ".Jump1-$Nonce.exe"
+$BackupPath = Join-Path $TargetDirectory ".Jump1-$Nonce.backup.exe"
+$MovedOld = $false
+$InstalledNew = $false
+
+try {
+    while (Get-Process -Id $ProcessIdToWait -ErrorAction SilentlyContinue) {
+        Start-Sleep -Milliseconds 200
+    }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $Archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $AllowedNames = @('Jump1.exe', 'README-Windows.txt')
+        if ($Archive.Entries.Count -ne 2) { throw 'The update archive has an unexpected file list.' }
+        foreach ($Entry in $Archive.Entries) {
+            if ($Entry.FullName -notin $AllowedNames -or $Entry.FullName.Contains('/') -or $Entry.FullName.Contains('\')) {
+                throw 'The update archive contains an unexpected path.'
+            }
+        }
+        $ExecutableEntry = $Archive.GetEntry('Jump1.exe')
+        if ($null -eq $ExecutableEntry -or $ExecutableEntry.Length -le 0 -or $ExecutableEntry.Length -gt 128MB) {
+            throw 'The update executable is missing or has an invalid size.'
+        }
+        $InputStream = $ExecutableEntry.Open()
+        $OutputStream = [System.IO.File]::Create($StagedPath)
+        try { $InputStream.CopyTo($OutputStream) }
+        finally { $OutputStream.Dispose(); $InputStream.Dispose() }
+    }
+    finally { $Archive.Dispose() }
+
+    $StagedVersion = (Get-Item -LiteralPath $StagedPath).VersionInfo.ProductVersion
+    if ($StagedVersion -ne $ExpectedVersion) { throw "The update version does not match ($StagedVersion)." }
+
+    Move-Item -LiteralPath $TargetPath -Destination $BackupPath
+    $MovedOld = $true
+    Move-Item -LiteralPath $StagedPath -Destination $TargetPath
+    $InstalledNew = $true
+    Start-Process -FilePath $TargetPath
+    Remove-Item -LiteralPath $BackupPath -Force
+    $MovedOld = $false
+    Remove-Item -LiteralPath $ArchivePath -Force -ErrorAction SilentlyContinue
+}
+catch {
+    if ($InstalledNew -and (Test-Path -LiteralPath $TargetPath)) {
+        Remove-Item -LiteralPath $TargetPath -Force -ErrorAction SilentlyContinue
+    }
+    if ($MovedOld -and (Test-Path -LiteralPath $BackupPath)) {
+        Move-Item -LiteralPath $BackupPath -Destination $TargetPath -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $StagedPath) {
+        Remove-Item -LiteralPath $StagedPath -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $TargetPath) {
+        Start-Process -FilePath $TargetPath -ErrorAction SilentlyContinue
+    }
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "Jump1 could not finish the update. The previous version was restored when possible.`r`n`r`n$($_.Exception.Message)",
+        'Jump1 update',
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    ) | Out-Null
+}
+finally {
+    Remove-Item -LiteralPath $ScriptPath -Force -ErrorAction SilentlyContinue
+}
+"#;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const UPDATE_INSTALLER_SCRIPT: &str = r#"#!/bin/sh
@@ -434,7 +580,10 @@ installed_ok=1
 backup_root=""
 "#;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 pub fn fetch_latest_release() -> Result<Vec<ReleaseEntry>, String> {
     let releases = GitHubReleaseClient::new()?.releases()?;
 
@@ -452,9 +601,12 @@ pub fn fetch_latest_release() -> Result<Vec<ReleaseEntry>, String> {
         })
         .filter_map(|release| {
             let version = release.get("tag_name")?.as_str()?.to_owned();
-            let release_url = release.get("html_url")?.as_str()?.to_owned();
             let version_number = version.strip_prefix('v').unwrap_or(&version).to_owned();
-            let download_name = format!("Jump1-{version_number}-aarch64.dmg");
+            if !is_stable_release_version(&version_number) {
+                return None;
+            }
+            let release_url = release.get("html_url")?.as_str()?.to_owned();
+            let download_name = platform_asset_name(&version_number);
             let download_url = release
                 .get("assets")?
                 .as_array()?
@@ -481,12 +633,18 @@ pub fn fetch_latest_release() -> Result<Vec<ReleaseEntry>, String> {
         .collect())
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 struct GitHubReleaseClient {
     client: reqwest::blocking::Client,
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 impl GitHubReleaseClient {
     fn new() -> Result<Self, String> {
         use std::time::Duration;
@@ -503,16 +661,34 @@ impl GitHubReleaseClient {
     fn releases(&self) -> Result<Vec<serde_json::Value>, String> {
         match self.api_releases() {
             Ok(releases) if !releases.is_empty() => Ok(releases),
-            Ok(releases) => self.atom_releases().or(Ok(releases)),
-            Err(api_error) => self.atom_releases().map_err(|feed_error| {
-                format!("{api_error}；GitHub Releases feed 回退失败：{feed_error}")
-            }),
+            Ok(releases) => {
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                {
+                    self.atom_releases().or(Ok(releases))
+                }
+                #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+                {
+                    Ok(releases)
+                }
+            }
+            Err(api_error) => {
+                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                {
+                    self.atom_releases().map_err(|feed_error| {
+                        format!("{api_error}；GitHub Releases feed 回退失败：{feed_error}")
+                    })
+                }
+                #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+                {
+                    Err(api_error)
+                }
+            }
         }
     }
 
     fn api_releases(&self) -> Result<Vec<serde_json::Value>, String> {
         const RELEASES_API: &str =
-            "https://api.github.com/repos/JCLee777/jump1/releases?per_page=1";
+            "https://api.github.com/repos/JCLee777/jump1/releases?per_page=10";
 
         let response = self
             .client
@@ -530,6 +706,7 @@ impl GitHubReleaseClient {
             .map_err(|error| format!("无法解析 GitHub 版本信息：{error}"))
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn atom_releases(&self) -> Result<Vec<serde_json::Value>, String> {
         const RELEASES_FEED: &str = "https://github.com/JCLee777/jump1/releases.atom";
         const RELEASE_PAGE_PREFIX: &str = "https://github.com/JCLee777/jump1/releases/tag/";
@@ -577,7 +754,7 @@ impl GitHubReleaseClient {
                     .and_then(|node| node.text())
                     .map(github_html_to_markdown)
                     .unwrap_or_default();
-                let download_name = format!("Jump1-{version_number}-aarch64.dmg");
+                let download_name = platform_asset_name(version_number);
 
                 Some(serde_json::json!({
                     "tag_name": tag,
@@ -603,13 +780,31 @@ impl GitHubReleaseClient {
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 fn is_stable_release_version(version: &str) -> bool {
     let parts = version.split('.').collect::<Vec<_>>();
     parts.len() == 3
         && parts
             .iter()
             .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
+fn platform_asset_name(version: &str) -> String {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        format!("Jump1-{version}-aarch64.dmg")
+    }
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        format!("Jump1-{version}-x86_64-windows.zip")
+    }
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

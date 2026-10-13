@@ -18,7 +18,8 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
 - `src/state.rs`: contain persisted application-wide preferences only.
 - `src/theme.rs`: own application metrics and resolve semantic design tokens.
 - `src/update.rs`: query the latest supported GitHub Release and parse its notes.
-- `.github/workflows/release.yml`: validate tags and build/publish macOS ARM64 releases.
+- `build.rs` and `assets/app-icon.ico`: embed the Windows executable icon and version resource.
+- `.github/workflows/release.yml`: validate tags and build/publish macOS ARM64 and Windows x86_64 releases.
 - `CHANGELOG.md`: record user-facing changes for each version.
 - `docs/architecture.md`: record module boundaries and extension decisions.
 
@@ -57,19 +58,23 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
   changelog before publishing. Release notes come from that changelog section.
 - Treat a published release and its tag as immutable. Correct a published build
   with a new patch version rather than moving its tag or replacing its asset.
-- The supported release target is Apple Silicon macOS (`aarch64-apple-darwin`).
-  Keep the release asset name `Jump1-MAJOR.MINOR.PATCH-aarch64.dmg` aligned
-  between `scripts/package-macos.sh`, the release workflow, and `src/update.rs`.
+- Supported release targets are Apple Silicon macOS (`aarch64-apple-darwin`) and
+  Windows x86_64 MSVC (`x86_64-pc-windows-msvc`). Keep `Jump1-MAJOR.MINOR.PATCH-aarch64.dmg`
+  and `Jump1-MAJOR.MINOR.PATCH-x86_64-windows.zip` aligned between the packaging
+  scripts, release workflow, and `src/update.rs`. The Windows ZIP contains the
+  versioned `Jump1.exe` plus `README-Windows.txt`; `build.rs` embeds the icon and
+  executable version metadata from the project icon and Cargo version.
 - The in-app updater reads the public `JCLee777/jump1` GitHub Releases feed and
-  downloads the matching DMG inside the app. The user must select Install and
-  Relaunch before the updater replaces the current app bundle. Restrict
-  downloads to the matching official ARM64 release asset, validate the staged
-  app bundle identity and version, and retain the GitHub release page as a
-  manual fallback. Keep target gating and download naming aligned with the
-  published assets, and show the latest release with localized notes; never
-  install or relaunch silently.
-- Do not add other release platforms or update feeds without updating this
-  policy, the workflow, and the user-facing release documentation together.
+  downloads the matching platform package. The user must select Install and
+  Relaunch before the updater replaces the current app. Restrict downloads to
+  the matching official release asset, validate the staged app identity and
+  version, and retain the GitHub release page as a manual fallback. On Windows,
+  validate the ZIP file list and staged executable version before replacement;
+  restore the previous executable if replacement fails. Keep target gating and
+  download naming aligned with published assets, show localized notes, and
+  never install or relaunch silently.
+- Update this policy, workflow, and user-facing release documentation together
+  whenever adding another release platform or update feed.
 
 ## Commands
 

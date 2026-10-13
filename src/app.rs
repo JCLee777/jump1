@@ -524,20 +524,38 @@ impl Jump1Shell {
                 cx.notify();
             }
             PluginEvent::CheckForUpdates => {
-                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                #[cfg(any(
+                    all(target_os = "macos", target_arch = "aarch64"),
+                    all(target_os = "windows", target_arch = "x86_64")
+                ))]
                 self.check_for_updates(cx);
             }
             PluginEvent::DownloadUpdate { version, url } => {
-                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                #[cfg(any(
+                    all(target_os = "macos", target_arch = "aarch64"),
+                    all(target_os = "windows", target_arch = "x86_64")
+                ))]
                 self.download_update(version, url, cx);
-                #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+                #[cfg(not(any(
+                    all(target_os = "macos", target_arch = "aarch64"),
+                    all(target_os = "windows", target_arch = "x86_64")
+                )))]
                 let _ = (version, url);
             }
-            PluginEvent::InstallUpdate { version, dmg_path } => {
-                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-                self.install_update(version, dmg_path, cx);
-                #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-                let _ = (version, dmg_path);
+            PluginEvent::InstallUpdate {
+                version,
+                package_path,
+            } => {
+                #[cfg(any(
+                    all(target_os = "macos", target_arch = "aarch64"),
+                    all(target_os = "windows", target_arch = "x86_64")
+                ))]
+                self.install_update(version, package_path, cx);
+                #[cfg(not(any(
+                    all(target_os = "macos", target_arch = "aarch64"),
+                    all(target_os = "windows", target_arch = "x86_64")
+                )))]
+                let _ = (version, package_path);
             }
             PluginEvent::ShortcutBinding(event) => {
                 self.handle_shortcut_binding_event(event, window, cx);
@@ -545,7 +563,10 @@ impl Jump1Shell {
         }
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     fn check_for_updates(&mut self, cx: &mut Context<Self>) {
         if self.update_status.is_busy() {
             return;
@@ -569,7 +590,10 @@ impl Jump1Shell {
         .detach();
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     fn download_update(&mut self, version: String, url: String, cx: &mut Context<Self>) {
         if self.update_status.is_busy() {
             return;
@@ -594,10 +618,10 @@ impl Jump1Shell {
             .spawn(async move { crate::update::download_update(&download_version, &url) });
         cx.spawn(async move |this, cx| {
             let status = match request.await {
-                Ok(dmg_path) => UpdateStatus::Downloaded {
+                Ok(package_path) => UpdateStatus::Downloaded {
                     releases,
                     version,
-                    dmg_path,
+                    package_path,
                 },
                 Err(error) => UpdateStatus::DownloadFailed { releases, error },
             };
@@ -609,11 +633,14 @@ impl Jump1Shell {
         .detach();
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     fn install_update(
         &mut self,
         version: String,
-        dmg_path: std::path::PathBuf,
+        package_path: std::path::PathBuf,
         cx: &mut Context<Self>,
     ) {
         if self.update_status.is_busy() {
@@ -623,21 +650,21 @@ impl Jump1Shell {
             UpdateStatus::Downloaded {
                 releases,
                 version,
-                dmg_path,
+                package_path,
             }
             | UpdateStatus::InstallFailed {
                 releases,
                 version,
-                dmg_path,
+                package_path,
                 ..
-            } => (releases.clone(), version.clone(), dmg_path.clone()),
+            } => (releases.clone(), version.clone(), package_path.clone()),
             _ => return,
         };
-        if version != expected_version || dmg_path != expected_path {
+        if version != expected_version || package_path != expected_path {
             return;
         }
 
-        match crate::update::install_update_and_restart(&dmg_path, &version) {
+        match crate::update::install_update_and_restart(&package_path, &version) {
             Ok(()) => {
                 self.update_status = UpdateStatus::Installing { releases, version };
                 cx.quit();
@@ -646,7 +673,7 @@ impl Jump1Shell {
                 self.update_status = UpdateStatus::InstallFailed {
                     releases,
                     version,
-                    dmg_path,
+                    package_path,
                     error,
                 };
                 cx.notify();

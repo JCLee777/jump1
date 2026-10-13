@@ -122,8 +122,15 @@ pub fn render(
                     download_handler(PluginEvent::DownloadUpdate { version, url }, window, cx);
                 });
             let on_install_update: settings_view::InstallUpdateHandler =
-                Rc::new(move |version, dmg_path, window, cx| {
-                    install_handler(PluginEvent::InstallUpdate { version, dmg_path }, window, cx);
+                Rc::new(move |version, package_path, window, cx| {
+                    install_handler(
+                        PluginEvent::InstallUpdate {
+                            version,
+                            package_path,
+                        },
+                        window,
+                        cx,
+                    );
                 });
             settings_view::render(
                 input,
