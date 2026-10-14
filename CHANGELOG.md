@@ -5,6 +5,14 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+### 简体中文
+
+- Windows 搜索现包含控制面板、任务管理器、设置和常用系统管理工具，并支持中文、英文及拼音搜索。
+
+### English
+
+- Windows search now includes Control Panel, Task Manager, Settings, and common system tools, with Chinese, English, and pinyin search support.
+
 ## [0.1.13] - 2026-10-13
 
 ### 简体中文

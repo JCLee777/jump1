@@ -234,6 +234,7 @@ pub fn discover_apps() -> Vec<ApplicationEntry> {
                         );
                     }
                 }
+                append_windows_system_apps(&mut apps, jumbo_icon_list.as_ref());
                 apps
             })
             .ok()
@@ -1569,6 +1570,204 @@ fn scan_windows_shortcuts(
         } else if depth > 0 && path.is_dir() {
             scan_windows_shortcuts(&path, depth - 1, jumbo_icon_list, apps);
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn append_windows_system_apps(
+    apps: &mut Vec<ApplicationEntry>,
+    jumbo_icon_list: Option<&windows::Win32::UI::Controls::IImageList>,
+) {
+    let Some(windows_dir) = std::env::var_os("SystemRoot").map(PathBuf::from) else {
+        return;
+    };
+    let system32 = windows_dir.join("System32");
+    let immersive_control_panel = windows_dir
+        .join("ImmersiveControlPanel")
+        .join("SystemSettings.exe");
+    let system_apps: Vec<(&str, &[&str], PathBuf, Option<PathBuf>)> = vec![
+        (
+            "控制面板",
+            &["Control Panel", "control"],
+            system32.join("control.exe"),
+            None,
+        ),
+        (
+            "任务管理器",
+            &["Task Manager", "taskmgr", "进程管理器"],
+            system32.join("taskmgr.exe"),
+            None,
+        ),
+        (
+            "设置",
+            &["Settings", "Windows Settings", "ms-settings"],
+            PathBuf::from("ms-settings:"),
+            Some(immersive_control_panel),
+        ),
+        (
+            "文件资源管理器",
+            &["File Explorer", "Windows Explorer", "explorer"],
+            windows_dir.join("explorer.exe"),
+            None,
+        ),
+        (
+            "设备管理器",
+            &["Device Manager", "devmgmt"],
+            system32.join("devmgmt.msc"),
+            None,
+        ),
+        (
+            "任务计划程序",
+            &["Task Scheduler", "taskschd"],
+            system32.join("taskschd.msc"),
+            None,
+        ),
+        (
+            "服务",
+            &["Services", "Services Manager", "services"],
+            system32.join("services.msc"),
+            None,
+        ),
+        (
+            "事件查看器",
+            &["Event Viewer", "eventvwr"],
+            system32.join("eventvwr.msc"),
+            None,
+        ),
+        (
+            "磁盘管理",
+            &["Disk Management", "diskmgmt"],
+            system32.join("diskmgmt.msc"),
+            None,
+        ),
+        (
+            "计算机管理",
+            &["Computer Management", "compmgmt"],
+            system32.join("compmgmt.msc"),
+            None,
+        ),
+        (
+            "系统配置",
+            &["System Configuration", "msconfig"],
+            system32.join("msconfig.exe"),
+            None,
+        ),
+        (
+            "系统信息",
+            &["System Information", "msinfo32"],
+            system32.join("msinfo32.exe"),
+            None,
+        ),
+        (
+            "资源监视器",
+            &["Resource Monitor", "resmon"],
+            system32.join("resmon.exe"),
+            None,
+        ),
+        (
+            "性能监视器",
+            &["Performance Monitor", "perfmon"],
+            system32.join("perfmon.msc"),
+            None,
+        ),
+        (
+            "Windows 内存诊断",
+            &["Windows Memory Diagnostic", "Memory Diagnostic", "mdsched"],
+            system32.join("MdSched.exe"),
+            None,
+        ),
+        (
+            "高级安全 Windows Defender 防火墙",
+            &["Windows Defender Firewall with Advanced Security", "wf"],
+            system32.join("wf.msc"),
+            None,
+        ),
+        (
+            "本地安全策略",
+            &["Local Security Policy", "secpol"],
+            system32.join("secpol.msc"),
+            None,
+        ),
+        (
+            "本地组策略编辑器",
+            &["Local Group Policy Editor", "Group Policy Editor", "gpedit"],
+            system32.join("gpedit.msc"),
+            None,
+        ),
+        (
+            "注册表编辑器",
+            &["Registry Editor", "regedit", "注册表"],
+            windows_dir.join("regedit.exe"),
+            None,
+        ),
+        (
+            "字符映射表",
+            &["Character Map", "charmap"],
+            system32.join("charmap.exe"),
+            None,
+        ),
+        (
+            "系统还原",
+            &["System Restore", "rstrui"],
+            system32.join("rstrui.exe"),
+            None,
+        ),
+        (
+            "程序和功能",
+            &["Programs and Features", "Add or Remove Programs", "appwiz"],
+            system32.join("appwiz.cpl"),
+            None,
+        ),
+        (
+            "网络连接",
+            &["Network Connections", "ncpa"],
+            system32.join("ncpa.cpl"),
+            None,
+        ),
+        (
+            "声音设置",
+            &["Sound", "Sound Settings", "mmsys"],
+            system32.join("mmsys.cpl"),
+            None,
+        ),
+    ];
+
+    for (name, aliases, target, icon_source) in system_apps {
+        let is_settings_uri = target
+            .as_os_str()
+            .to_string_lossy()
+            .starts_with("ms-settings:");
+        if !is_settings_uri && !target.is_file() {
+            continue;
+        }
+
+        let matching_app = apps.iter_mut().find(|app| {
+            let app_name = text_search::normalize(&app.name);
+            text_search::normalize(name) == app_name
+                || aliases
+                    .iter()
+                    .any(|alias| text_search::normalize(alias) == app_name)
+        });
+        let search_names = std::iter::once(name).chain(aliases.iter().copied());
+        let search_terms = text_search::application_terms(search_names);
+        if let Some(app) = matching_app {
+            for term in search_terms {
+                if !app.search_terms.contains(&term) {
+                    app.search_terms.push(term);
+                }
+            }
+            continue;
+        }
+
+        let icon_source = icon_source.as_deref().unwrap_or(&target);
+        let icon_path = windows_shortcut_icon(icon_source, jumbo_icon_list);
+        let aliases = aliases.iter().map(|alias| (*alias).to_owned()).collect();
+        apps.push(application_entry(
+            name.to_owned(),
+            aliases,
+            target,
+            icon_path,
+        ));
     }
 }
 

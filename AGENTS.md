@@ -12,7 +12,7 @@ Jump1 是轻量桌面启动器与工具箱。命令面板是入口，应用启�
 - `src/plugin/launcher/search.rs`: define launcher search data and pure matching logic.
 - `src/icon.rs`: own the built-in SVG catalog and icon rendering helpers.
 - `src/i18n.rs`: own locales and all product-facing text.
-- `src/platform.rs`: contain OS-specific discovery and process launching.
+- `src/platform.rs`: contain OS-specific discovery and process launching, including Windows Start Menu and built-in system apps.
 - `src/plugin/`: contain built-in plugin identities and isolated implementations.
 - `src/plugin/protocol.rs`: contain shared plugin-host result and action types.
 - `src/state.rs`: contain persisted application-wide preferences only.
