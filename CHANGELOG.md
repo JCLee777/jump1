@@ -5,6 +5,8 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-10-14
+
 ### 简体中文
 
 - Windows 搜索现包含控制面板、任务管理器、设置和常用系统管理工具，并支持中文、英文及拼音搜索。
