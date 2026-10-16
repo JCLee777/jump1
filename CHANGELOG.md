@@ -5,6 +5,16 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-10-16
+
+### 简体中文
+
+- 应用启动后自动检查更新，并每 12 小时轮询一次；发现新版本后在后台下载，完成后提示安装并重启。
+
+### English
+
+- Check for updates after startup and every 12 hours. Download new releases in the background and prompt to install and relaunch when ready.
+
 ## [0.1.15] - 2026-10-16
 
 ### 简体中文

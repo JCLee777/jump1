@@ -207,6 +207,15 @@ pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, Str
         return Err("更新下载地址不属于官方 Jump1 Release".to_owned());
     }
 
+    let update_dir = update_directory()?;
+    fs::create_dir_all(&update_dir).map_err(|error| format!("无法创建更新目录：{error}"))?;
+    let final_path = update_dir.join(&asset_name);
+    if fs::symlink_metadata(&final_path).is_ok_and(|metadata| {
+        metadata.file_type().is_file() && (1..=MAX_DOWNLOAD_BYTES).contains(&metadata.len())
+    }) {
+        return Ok(final_path);
+    }
+
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(300))
@@ -228,9 +237,6 @@ pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, Str
         return Err("更新安装包超过允许的大小".to_owned());
     }
 
-    let update_dir = update_directory()?;
-    fs::create_dir_all(&update_dir).map_err(|error| format!("无法创建更新目录：{error}"))?;
-    let final_path = update_dir.join(asset_name);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("无法生成临时文件名：{error}"))?

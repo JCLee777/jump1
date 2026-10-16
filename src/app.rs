@@ -27,7 +27,7 @@ use crate::{
         AccentColor, AppTheme, MAX_PANEL_HEIGHT, MAX_PANEL_WIDTH, MIN_PANEL_HEIGHT,
         MIN_PANEL_WIDTH, PanelSizePreset, apply_accent_color,
     },
-    update::UpdateStatus,
+    update::{UpdateStatus, is_newer_version},
 };
 
 pub(crate) struct Jump1Shell {
@@ -46,6 +46,7 @@ pub(crate) struct Jump1Shell {
     i18n: I18n,
     plugins: PluginManager,
     update_status: UpdateStatus,
+    dismissed_update_prompt: Option<String>,
     selected: usize,
     status: Option<String>,
     recording_shortcut: Option<u64>,
@@ -400,6 +401,27 @@ impl Jump1Shell {
         })
         .detach();
 
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "windows", target_arch = "x86_64")
+        ))]
+        {
+            let timer = cx.background_executor().clone();
+            cx.spawn(async move |this, cx| {
+                timer.timer(Duration::from_secs(5)).await;
+                loop {
+                    if this
+                        .update(cx, |shell, cx| shell.check_for_updates(cx))
+                        .is_err()
+                    {
+                        break;
+                    }
+                    timer.timer(Duration::from_secs(12 * 60 * 60)).await;
+                }
+            })
+            .detach();
+        }
+
         Self {
             input,
             _input_subscription: input_subscription,
@@ -416,6 +438,7 @@ impl Jump1Shell {
             i18n,
             plugins,
             update_status: UpdateStatus::default(),
+            dismissed_update_prompt: None,
             selected: 0,
             status: None,
             recording_shortcut: None,
@@ -578,13 +601,31 @@ impl Jump1Shell {
             .background_executor()
             .spawn(async { crate::update::fetch_latest_release() });
         cx.spawn(async move |this, cx| {
-            let status = match request.await {
-                Ok(releases) => UpdateStatus::Ready(releases),
-                Err(error) => UpdateStatus::Failed(error),
-            };
-            let _ = this.update(cx, |shell, cx| {
-                shell.update_status = status;
-                cx.notify();
+            let result = request.await;
+            let _ = this.update(cx, |shell, cx| match result {
+                Ok(releases) => {
+                    let update = releases
+                        .first()
+                        .filter(|release| {
+                            is_newer_version(&release.version, env!("CARGO_PKG_VERSION"))
+                        })
+                        .and_then(|release| {
+                            release
+                                .download_url
+                                .as_ref()
+                                .map(|url| (release.version.clone(), url.clone()))
+                        });
+                    shell.update_status = UpdateStatus::Ready(releases);
+                    if let Some((version, url)) = update {
+                        shell.download_update(version, url, cx);
+                    } else {
+                        cx.notify();
+                    }
+                }
+                Err(error) => {
+                    shell.update_status = UpdateStatus::Failed(error);
+                    cx.notify();
+                }
             });
         })
         .detach();
@@ -1063,8 +1104,9 @@ impl Render for Jump1Shell {
 
         let theme = AppTheme::resolve(cx);
         let shell = cx.entity();
+        let event_shell = shell.clone();
         let on_event: host_view::EventHandler = Rc::new(move |event, window, cx| {
-            let _ = shell.update(cx, |shell, cx| {
+            let _ = event_shell.update(cx, |shell, cx| {
                 shell.handle_plugin_event(event, window, cx);
             });
         });
@@ -1080,12 +1122,150 @@ impl Render for Jump1Shell {
             self.status.clone(),
             &self.i18n,
             &theme,
-            on_event,
+            on_event.clone(),
             self.recording_shortcut,
             self.editing_shortcut_query,
             self.shortcut_conflicts.clone(),
             &self.update_status,
         );
+        let update_prompt = match &self.update_status {
+            UpdateStatus::Downloaded {
+                version,
+                package_path,
+                ..
+            } if self.dismissed_update_prompt.as_deref() != Some(version.as_str()) => {
+                Some((version.clone(), package_path.clone()))
+            }
+            _ => None,
+        };
+        let content = if let Some((version, package_path)) = update_prompt {
+            let dismiss_shell = shell.downgrade();
+            let dismiss_version = version.clone();
+            let on_install = on_event.clone();
+            let version_label =
+                format!("v{}", version.strip_prefix('v').unwrap_or(version.as_str()));
+            let colors = theme.semantic.colors;
+            let spacing = theme.semantic.spacing;
+            let typography = &theme.semantic.typography;
+            let hover_surface = theme.materials.hover;
+            div()
+                .relative()
+                .size_full()
+                .child(content)
+                .child(
+                    div()
+                        .id("update-ready-backdrop")
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(rgb(0x000000).opacity(0.38))
+                        .on_click(|_, _, _| {})
+                        .child(
+                            div()
+                                .id("update-ready-dialog")
+                                .w(px(420.))
+                                .flex()
+                                .flex_col()
+                                .gap(spacing.md)
+                                .p(spacing.xl)
+                                .rounded(theme.semantic.radius.lg)
+                                .border_1()
+                                .border_color(colors.border)
+                                .bg(theme.materials.surface)
+                                .shadow_lg()
+                                .on_click(|_, _, _| {})
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(spacing.xs)
+                                        .child(
+                                            div()
+                                                .text_size(typography.lg.size)
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .child(self.i18n.text(Message::UpdateReadyTitle)),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(typography.sm.size)
+                                                .text_color(colors.muted_foreground)
+                                                .child(format!(
+                                                    "{version_label} · {}",
+                                                    self.i18n.text(Message::UpdateReadyBody)
+                                                )),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .justify_end()
+                                        .items_center()
+                                        .gap(spacing.sm)
+                                        .child(
+                                            div()
+                                                .id("update-ready-later")
+                                                .h(px(34.))
+                                                .px(spacing.md)
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .rounded(theme.semantic.radius.md)
+                                                .border_1()
+                                                .border_color(colors.border)
+                                                .bg(theme.materials.window)
+                                                .text_size(typography.xs.size)
+                                                .cursor_pointer()
+                                                .hover(move |this| this.bg(hover_surface))
+                                                .on_click(move |_, _, cx| {
+                                                    let version = dismiss_version.clone();
+                                                    let _ =
+                                                        dismiss_shell.update(cx, |shell, cx| {
+                                                            shell.dismissed_update_prompt =
+                                                                Some(version);
+                                                            cx.notify();
+                                                        });
+                                                })
+                                                .child(self.i18n.text(Message::UpdateLater)),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("update-ready-install")
+                                                .h(px(34.))
+                                                .px(spacing.md)
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .rounded(theme.semantic.radius.md)
+                                                .bg(colors.accent)
+                                                .text_color(colors.accent_foreground)
+                                                .text_size(typography.xs.size)
+                                                .cursor_pointer()
+                                                .hover(move |this| {
+                                                    this.bg(colors.accent.opacity(0.88))
+                                                })
+                                                .on_click(move |_, window, cx| {
+                                                    on_install(
+                                                        PluginEvent::InstallUpdate {
+                                                            version: version.clone(),
+                                                            package_path: package_path.clone(),
+                                                        },
+                                                        window,
+                                                        cx,
+                                                    );
+                                                })
+                                                .child(
+                                                    self.i18n.text(Message::SettingsInstallUpdate),
+                                                ),
+                                        ),
+                                ),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            content
+        };
         #[cfg(target_os = "macos")]
         {
             content
