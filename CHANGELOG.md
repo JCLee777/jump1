@@ -5,6 +5,16 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-10-16
+
+### 简体中文
+
+- 统一内置图标的线条粗细、画布尺寸和视觉风格。
+
+### English
+
+- Unified the stroke weight, canvas size, and visual style of built-in icons.
+
 ## [0.1.18] - 2026-10-16
 
 ### 简体中文
