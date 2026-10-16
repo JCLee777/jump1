@@ -3589,7 +3589,7 @@ dependencies = [
 
 [[package]]
 name = "jump1"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "chrono",
  "embed-resource",

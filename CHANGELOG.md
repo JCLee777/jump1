@@ -5,6 +5,16 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-10-16
+
+### 简体中文
+
+- 修复 macOS 剪切板图片预览倒置的问题。
+
+### English
+
+- Fixed upside-down clipboard image previews on macOS.
+
 ## [0.1.14] - 2026-10-14
 
 ### 简体中文

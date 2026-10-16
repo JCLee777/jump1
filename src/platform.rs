@@ -151,10 +151,8 @@ fn decode_image_source_thumbnail(
         )
     }?;
     CGContext::set_interpolation_quality(Some(&context), CGInterpolationQuality::High);
-    // Core Graphics' bitmap context has a bottom-left origin; flip the Y axis
-    // so the output buffer uses the top-left row order expected by image::Frame.
-    CGContext::translate_ctm(Some(&context), 0.0, height as f64);
-    CGContext::scale_ctm(Some(&context), 1.0, -1.0);
+    // Keep the bitmap context's row order. Flipping its Y axis here makes the
+    // raw buffer appear upside down when image::Frame consumes it on macOS.
     CGContext::draw_image(
         Some(&context),
         CGRect::new(
