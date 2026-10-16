@@ -1126,6 +1126,11 @@ fn plugin_setting_row(
     let hover_background = theme.materials.hover;
     let plugin = setting.plugin;
     let key = setting.key;
+    let visibility_setting = setting.options.len() == 2
+        && setting.options.iter().any(|(value, _)| value == "show")
+        && setting.options.iter().any(|(value, _)| value == "hide");
+    let is_visible = setting.selected == "show";
+    let accessibility_title = setting.title.clone();
 
     div()
         .w_full()
@@ -1164,65 +1169,86 @@ fn plugin_setting_row(
         )
         .child(
             div()
-                .flex()
-                .items_center()
-                .gap(spacing.xxs)
-                .p(spacing.xxs)
-                .rounded(theme.semantic.radius.md)
-                .border_1()
-                .border_color(colors.border)
-                .bg(theme.materials.window)
-                .children(setting.options.into_iter().map(|(value, label)| {
-                    let active = value == setting.selected;
+                .when(visibility_setting, |this| {
                     let callback = on_change.clone();
-                    div()
-                        .id(format!("setting-{key}-{value}"))
-                        .h(px(30.))
-                        .px(spacing.md)
-                        .flex()
+                    this.flex().items_center().child(
+                        Switch::new(format!("setting-{key}"))
+                            .checked(is_visible)
+                            .accessibility_label(accessibility_title)
+                            .on_click(move |checked, window, cx| {
+                                callback(
+                                    SettingsChange::Plugin {
+                                        plugin,
+                                        key: key.to_owned(),
+                                        value: if *checked { "show" } else { "hide" }.to_owned(),
+                                    },
+                                    window,
+                                    cx,
+                                )
+                            }),
+                    )
+                })
+                .when(!visibility_setting, |this| {
+                    this.flex()
                         .items_center()
-                        .justify_center()
+                        .gap(spacing.xxs)
+                        .p(spacing.xxs)
                         .rounded(theme.semantic.radius.md)
-                        .cursor_pointer()
-                        .bg(if active {
-                            selected_background
-                        } else {
-                            transparent_black()
-                        })
-                        .text_color(if active {
-                            selected_foreground
-                        } else {
-                            colors.foreground
-                        })
-                        .hover(move |this| {
-                            this.bg(if active {
-                                selected_background
-                            } else {
-                                hover_background
-                            })
-                        })
-                        .on_click(move |_, window, cx| {
-                            callback(
-                                SettingsChange::Plugin {
-                                    plugin,
-                                    key: key.to_owned(),
-                                    value: value.clone(),
-                                },
-                                window,
-                                cx,
-                            )
-                        })
-                        .child(
+                        .border_1()
+                        .border_color(colors.border)
+                        .bg(theme.materials.window)
+                        .children(setting.options.into_iter().map(|(value, label)| {
+                            let active = value == setting.selected;
+                            let callback = on_change.clone();
                             div()
-                                .text_size(typography.xs.size)
-                                .font_weight(if active {
-                                    FontWeight::SEMIBOLD
+                                .id(format!("setting-{key}-{value}"))
+                                .h(px(30.))
+                                .px(spacing.md)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(theme.semantic.radius.md)
+                                .cursor_pointer()
+                                .bg(if active {
+                                    selected_background
                                 } else {
-                                    FontWeight::NORMAL
+                                    transparent_black()
                                 })
-                                .child(label),
-                        )
-                })),
+                                .text_color(if active {
+                                    selected_foreground
+                                } else {
+                                    colors.foreground
+                                })
+                                .hover(move |this| {
+                                    this.bg(if active {
+                                        selected_background
+                                    } else {
+                                        hover_background
+                                    })
+                                })
+                                .on_click(move |_, window, cx| {
+                                    callback(
+                                        SettingsChange::Plugin {
+                                            plugin,
+                                            key: key.to_owned(),
+                                            value: value.clone(),
+                                        },
+                                        window,
+                                        cx,
+                                    )
+                                })
+                                .child(
+                                    div()
+                                        .text_size(typography.xs.size)
+                                        .font_weight(if active {
+                                            FontWeight::SEMIBOLD
+                                        } else {
+                                            FontWeight::NORMAL
+                                        })
+                                        .child(label),
+                                )
+                        }))
+                }),
         )
 }
 
