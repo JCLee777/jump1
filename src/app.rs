@@ -167,11 +167,20 @@ impl Jump1Shell {
         let input_focus = input.focus_handle(cx);
         let shell = cx.entity().downgrade();
         let key_subscription = cx.intercept_keystrokes(move |event, window, cx| {
-            if !input_focus.is_focused(window) {
-                return;
-            }
             let handled = shell
                 .update(cx, |shell, cx| {
+                    if shell.update_prompt_is_visible() {
+                        if event.keystroke.key == "escape"
+                            && let UpdateStatus::Downloaded { version, .. } = &shell.update_status
+                        {
+                            shell.dismissed_update_prompt = Some(version.clone());
+                            cx.notify();
+                        }
+                        return true;
+                    }
+                    if !input_focus.is_focused(window) {
+                        return false;
+                    }
                     if let Some(id) = shell.recording_shortcut {
                         if event.keystroke.key == "escape" {
                             shell.recording_shortcut = None;
@@ -335,12 +344,17 @@ impl Jump1Shell {
                         let alive = window_handle
                             .update(cx, |_, window, cx| {
                                 shortcut_shell
-                                    .update(cx, |shell, cx| match action {
-                                        ShortcutAction::ToggleLauncher => {
-                                            shell.toggle_panel(window, cx)
+                                    .update(cx, |shell, cx| {
+                                        if shell.update_prompt_is_visible() {
+                                            return;
                                         }
-                                        ShortcutAction::RunBinding(id) => {
-                                            shell.run_shortcut_binding(id, window, cx)
+                                        match action {
+                                            ShortcutAction::ToggleLauncher => {
+                                                shell.toggle_panel(window, cx)
+                                            }
+                                            ShortcutAction::RunBinding(id) => {
+                                                shell.run_shortcut_binding(id, window, cx)
+                                            }
                                         }
                                     })
                                     .is_ok()
@@ -450,6 +464,14 @@ impl Jump1Shell {
 
     fn current_count(&self) -> usize {
         self.plugins.current_count()
+    }
+
+    fn update_prompt_is_visible(&self) -> bool {
+        matches!(
+            &self.update_status,
+            UpdateStatus::Downloaded { version, .. }
+                if self.dismissed_update_prompt.as_deref() != Some(version.as_str())
+        )
     }
 
     fn scroll_to_result(&self, index: usize) {
@@ -1130,15 +1152,20 @@ impl Render for Jump1Shell {
         );
         let update_prompt = match &self.update_status {
             UpdateStatus::Downloaded {
+                releases,
                 version,
                 package_path,
-                ..
             } if self.dismissed_update_prompt.as_deref() != Some(version.as_str()) => {
-                Some((version.clone(), package_path.clone()))
+                let notes = releases
+                    .iter()
+                    .find(|release| release.version == *version)
+                    .map(|release| release.notes.for_locale(self.i18n.locale()).to_owned())
+                    .unwrap_or_default();
+                Some((version.clone(), package_path.clone(), notes))
             }
             _ => None,
         };
-        let content = if let Some((version, package_path)) = update_prompt {
+        let content = if let Some((version, package_path, release_notes)) = update_prompt {
             let dismiss_shell = shell.downgrade();
             let dismiss_version = version.clone();
             let on_install = on_event.clone();
@@ -1148,6 +1175,34 @@ impl Render for Jump1Shell {
             let spacing = theme.semantic.spacing;
             let typography = &theme.semantic.typography;
             let hover_surface = theme.materials.hover;
+            let release_note_items = release_notes
+                .lines()
+                .filter_map(|line| {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        return None;
+                    }
+                    let line = line
+                        .strip_prefix("- ")
+                        .or_else(|| line.strip_prefix("* "))
+                        .unwrap_or(line)
+                        .to_owned();
+                    Some(
+                        div()
+                            .flex()
+                            .items_start()
+                            .gap(spacing.sm)
+                            .child(div().text_color(colors.accent).child("•"))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(typography.sm.size)
+                                    .text_color(colors.foreground)
+                                    .child(line),
+                            ),
+                    )
+                })
+                .collect::<Vec<_>>();
             div()
                 .relative()
                 .size_full()
@@ -1165,7 +1220,7 @@ impl Render for Jump1Shell {
                         .child(
                             div()
                                 .id("update-ready-dialog")
-                                .w(px(420.))
+                                .w(px(500.))
                                 .flex()
                                 .flex_col()
                                 .gap(spacing.md)
@@ -1177,24 +1232,44 @@ impl Render for Jump1Shell {
                                 .shadow_lg()
                                 .on_click(|_, _, _| {})
                                 .child(
+                                    div().flex().flex_col().gap(spacing.xs).child(
+                                        div()
+                                            .text_size(typography.lg.size)
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(
+                                                self.i18n
+                                                    .text(Message::UpdateReadyTitle)
+                                                    .replace("{version}", &version_label),
+                                            ),
+                                    ),
+                                )
+                                .child(
                                     div()
                                         .flex()
                                         .flex_col()
-                                        .gap(spacing.xs)
+                                        .gap(spacing.sm)
                                         .child(
                                             div()
-                                                .text_size(typography.lg.size)
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .child(self.i18n.text(Message::UpdateReadyTitle)),
+                                                .text_size(typography.xs.size)
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .text_color(colors.muted_foreground)
+                                                .child(
+                                                    self.i18n.text(Message::SettingsReleaseNotes),
+                                                ),
                                         )
                                         .child(
                                             div()
-                                                .text_size(typography.sm.size)
-                                                .text_color(colors.muted_foreground)
-                                                .child(format!(
-                                                    "{version_label} · {}",
-                                                    self.i18n.text(Message::UpdateReadyBody)
-                                                )),
+                                                .id("update-ready-notes")
+                                                .w_full()
+                                                .max_h(px(240.))
+                                                .overflow_y_scroll()
+                                                .p(spacing.md)
+                                                .rounded(theme.semantic.radius.md)
+                                                .bg(theme.materials.window)
+                                                .flex()
+                                                .flex_col()
+                                                .gap(spacing.sm)
+                                                .children(release_note_items),
                                         ),
                                 )
                                 .child(

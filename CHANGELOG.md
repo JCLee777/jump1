@@ -5,6 +5,18 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-10-16
+
+### 简体中文
+
+- 更新就绪弹窗显示版本号和对应语言的更新日志，支持滚动查看。
+- 弹窗打开期间拦截后台界面操作和全局快捷键；按 Esc 可关闭提示。
+
+### English
+
+- Show the version and localized release notes in the update-ready dialog, with scrolling for long notes.
+- Block background interactions and global shortcuts while the dialog is open; press Escape to dismiss it.
+
 ## [0.1.17] - 2026-10-16
 
 ### 简体中文

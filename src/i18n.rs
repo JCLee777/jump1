@@ -201,8 +201,7 @@ impl I18n {
             (Locale::ZhCn, Message::SettingsInstallFailed) => "安装失败",
             (Locale::ZhCn, Message::SettingsReleaseNotes) => "更新日志",
             (Locale::ZhCn, Message::SettingsOpenRelease) => "在 GitHub 查看",
-            (Locale::ZhCn, Message::UpdateReadyTitle) => "更新已准备好",
-            (Locale::ZhCn, Message::UpdateReadyBody) => "已下载完成，安装后 Jump1 会自动重启。",
+            (Locale::ZhCn, Message::UpdateReadyTitle) => "版本 {version} 已就绪",
             (Locale::ZhCn, Message::UpdateLater) => "稍后",
             (Locale::ZhCn, Message::ClipboardHistoryLimit) => "历史记录数量",
             (Locale::ZhCn, Message::ClipboardHistoryLimitDescription) => "保存的剪切板条目数量",
@@ -396,10 +395,7 @@ impl I18n {
             (Locale::EnUs, Message::SettingsInstallFailed) => "Installation failed",
             (Locale::EnUs, Message::SettingsReleaseNotes) => "Release notes",
             (Locale::EnUs, Message::SettingsOpenRelease) => "View on GitHub",
-            (Locale::EnUs, Message::UpdateReadyTitle) => "Update ready",
-            (Locale::EnUs, Message::UpdateReadyBody) => {
-                "The download is complete. Jump1 will relaunch after installation."
-            }
+            (Locale::EnUs, Message::UpdateReadyTitle) => "Version {version} is ready",
             (Locale::EnUs, Message::UpdateLater) => "Later",
             (Locale::EnUs, Message::ClipboardHistoryLimit) => "History limit",
             (Locale::EnUs, Message::ClipboardHistoryLimitDescription) => {
@@ -739,7 +735,6 @@ pub enum Message {
     SettingsReleaseNotes,
     SettingsOpenRelease,
     UpdateReadyTitle,
-    UpdateReadyBody,
     UpdateLater,
     ClipboardHistoryLimit,
     ClipboardHistoryLimitDescription,
