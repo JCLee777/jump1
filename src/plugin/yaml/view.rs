@@ -17,7 +17,7 @@ use crate::{
     icon::{Glyph, glyph},
     plugin::{
         PluginEvent, PluginEventHandler, PluginId,
-        compare::{Comparison, ScrollSync, Side, changed_ranges},
+        compare::{Comparison, DiffLocation, ScrollSync, Side, changed_ranges},
         storage::PluginStorage,
     },
     theme::AppTheme,
@@ -45,6 +45,8 @@ pub struct YamlPage {
     left_marks: TextDecorationCollection,
     right_marks: TextDecorationCollection,
     scroll_sync: ScrollSync,
+    differences: Vec<DiffLocation>,
+    active_difference: Option<usize>,
     compare_mode: bool,
     comparison: Comparison,
     validation: Validation,
@@ -192,6 +194,8 @@ impl YamlPage {
             left_marks,
             right_marks,
             scroll_sync: ScrollSync::default(),
+            differences: Vec::new(),
+            active_difference: None,
             compare_mode: false,
             comparison: compare_texts(&draft, &compare_draft),
             validation: validate(&draft),
@@ -284,15 +288,19 @@ impl YamlPage {
         } else {
             self.left_marks.clear(cx);
             self.right_marks.clear(cx);
+            self.differences.clear();
+            self.active_difference = None;
         }
         window.focus(&self.editor.focus_handle(cx), cx);
         cx.notify();
     }
 
     fn refresh_diff(&mut self, cx: &mut Context<Self>) {
-        if !self.compare_mode || self.compare_draft.trim().is_empty() {
+        if !self.compare_mode {
             self.left_marks.clear(cx);
             self.right_marks.clear(cx);
+            self.differences.clear();
+            self.active_difference = None;
             return;
         }
         let left = self.draft.clone();
@@ -333,9 +341,34 @@ impl YamlPage {
                         .collect(),
                     cx,
                 );
+                this.differences = ranges.locations;
+                this.active_difference = None;
+                cx.notify();
             });
         })
         .detach();
+    }
+
+    fn navigate_difference(&mut self, next: bool, cx: &mut Context<Self>) {
+        let count = self.differences.len();
+        if count == 0 {
+            return;
+        }
+        let index = match (self.active_difference, next) {
+            (Some(index), true) => (index + 1) % count,
+            (Some(index), false) => (index + count - 1) % count,
+            (None, true) => 0,
+            (None, false) => count - 1,
+        };
+        let location = self.differences[index];
+        self.scroll_sync.keep_independent_positions();
+        self.editor.update(cx, |editor, cx| {
+            editor.set_selected_range(location.left..location.left, cx);
+        });
+        self.compare_editor.update(cx, |editor, cx| {
+            editor.set_selected_range(location.right..location.right, cx);
+        });
+        self.active_difference = Some(index);
     }
 
     fn import_clipboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -403,6 +436,7 @@ impl Render for YamlPage {
         let typography = &theme.semantic.typography;
         let page = cx.entity();
         let on_back = self.on_event.clone();
+        let has_differences = !self.differences.is_empty();
 
         div()
             .size_full()
@@ -493,6 +527,24 @@ impl Render for YamlPage {
                         |page, window, cx| page.toggle_compare(window, cx),
                         &theme,
                     ))
+                    .when(self.compare_mode, |this| {
+                        this.child(difference_button(
+                            "yaml-diff-previous",
+                            Glyph::ArrowUp,
+                            has_differences,
+                            page.clone(),
+                            false,
+                            &theme,
+                        ))
+                        .child(difference_button(
+                            "yaml-diff-next",
+                            Glyph::ArrowDown,
+                            has_differences,
+                            page.clone(),
+                            true,
+                            &theme,
+                        ))
+                    })
                     .child(div().flex_1())
                     .child(tool_button(
                         "yaml-import",
@@ -623,6 +675,43 @@ fn tool_button(
         })
         .child(glyph(icon, px(14.), colors.primary))
         .child(label)
+}
+
+fn difference_button(
+    id: &'static str,
+    icon: Glyph,
+    enabled: bool,
+    page: Entity<YamlPage>,
+    next: bool,
+    theme: &AppTheme,
+) -> impl IntoElement {
+    let colors = theme.semantic.colors;
+    div()
+        .id(id)
+        .size(px(32.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(theme.semantic.radius.md)
+        .border_1()
+        .border_color(colors.border)
+        .bg(theme.materials.surface)
+        .when(enabled, |this| {
+            this.cursor_pointer()
+                .hover(move |this| this.bg(colors.muted))
+                .on_click(move |_, _, cx| {
+                    page.update(cx, |page, cx| page.navigate_difference(next, cx));
+                })
+        })
+        .child(glyph(
+            icon,
+            px(14.),
+            if enabled {
+                colors.primary
+            } else {
+                colors.muted_foreground
+            },
+        ))
 }
 
 fn yaml_status(

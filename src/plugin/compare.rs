@@ -32,6 +32,13 @@ impl Comparison {
 pub struct ChangedRanges {
     pub left: Vec<Range<usize>>,
     pub right: Vec<Range<usize>>,
+    pub locations: Vec<DiffLocation>,
+}
+
+#[derive(Clone, Copy)]
+pub struct DiffLocation {
+    pub left: usize,
+    pub right: usize,
 }
 
 /// Compare visible source lines; inserted and deleted lines are marked only
@@ -45,6 +52,7 @@ pub fn changed_ranges(left: &str, right: &str) -> ChangedRanges {
     let mut ranges = ChangedRanges {
         left: Vec::new(),
         right: Vec::new(),
+        locations: Vec::new(),
     };
     for op in diff.ops() {
         if op.tag() == DiffTag::Equal {
@@ -52,6 +60,10 @@ pub fn changed_ranges(left: &str, right: &str) -> ChangedRanges {
         }
         let old = op.old_range();
         let new = op.new_range();
+        ranges.locations.push(DiffLocation {
+            left: left_offsets[old.start],
+            right: right_offsets[new.start],
+        });
         if old.start < old.end {
             ranges
                 .left
@@ -86,15 +98,17 @@ pub struct ScrollSync {
     left: Option<Pixels>,
     right: Option<Pixels>,
     following: Option<(Side, Instant)>,
+    ignore_next: [bool; 2],
 }
 
 impl ScrollSync {
     pub fn observe(&mut self, side: Side, offset: Pixels, enabled: bool) -> Option<Pixels> {
-        let previous = match side {
-            Side::Left => &mut self.left,
-            Side::Right => &mut self.right,
+        let (previous, ignore_next) = match side {
+            Side::Left => (&mut self.left, &mut self.ignore_next[0]),
+            Side::Right => (&mut self.right, &mut self.ignore_next[1]),
         };
-        if previous.replace(offset) == Some(offset) || !enabled {
+        let ignore = std::mem::replace(ignore_next, false);
+        if previous.replace(offset) == Some(offset) || !enabled || ignore {
             return None;
         }
         if let Some((target, since)) = self.following {
@@ -113,5 +127,9 @@ impl ScrollSync {
 
     pub fn follow(&mut self, side: Side) {
         self.following = Some((side, Instant::now()));
+    }
+
+    pub fn keep_independent_positions(&mut self) {
+        self.ignore_next = [true; 2];
     }
 }

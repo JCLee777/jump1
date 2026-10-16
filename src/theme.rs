@@ -1,7 +1,9 @@
 //! Application design tokens built on GPUI Kit's semantic theme.
 
+use gpui_kit::component::highlighter::HighlightTheme;
 use gpui_kit::component::theme::{ActiveTheme, SemanticThemeTokens, Theme};
 use gpui_kit::{App, Hsla, Pixels, Size, px, rgb, size};
+use std::sync::Arc;
 
 pub const MIN_PANEL_WIDTH: u32 = 700;
 pub const MIN_PANEL_HEIGHT: u32 = 440;
@@ -190,15 +192,18 @@ pub struct AppTheme {
     pub semantic: SemanticThemeTokens,
     pub materials: Materials,
     pub metrics: Metrics,
+    pub highlight_theme: Arc<HighlightTheme>,
 }
 
 impl AppTheme {
     pub fn resolve(cx: &App) -> Self {
-        let semantic = cx.theme().semantic_tokens();
+        let current_theme = cx.theme();
+        let semantic = current_theme.semantic_tokens();
         Self {
             materials: Materials::resolve(&semantic),
             semantic,
             metrics: Metrics::default(),
+            highlight_theme: current_theme.highlight_theme.clone(),
         }
     }
 }

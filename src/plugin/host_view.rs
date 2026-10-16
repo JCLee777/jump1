@@ -55,6 +55,7 @@ pub fn render(
             let activate_handler = on_event.clone();
             let sort_handler = on_event.clone();
             let clear_handler = on_event.clone();
+            let url_handler = on_event.clone();
             let on_back: clipboard_view::BackHandler = Rc::new(move |window, cx| {
                 back_handler(PluginEvent::Back, window, cx);
             });
@@ -66,6 +67,9 @@ pub fn render(
             });
             let on_clear: clipboard_view::ClearHandler = Rc::new(move |window, cx| {
                 clear_handler(PluginEvent::ClearClipboard, window, cx);
+            });
+            let on_open_url: clipboard_view::OpenUrlHandler = Rc::new(move |url, window, cx| {
+                url_handler(PluginEvent::Action(CommandAction::Url(url)), window, cx);
             });
             clipboard_view::render(
                 input,
@@ -83,6 +87,7 @@ pub fn render(
                 on_activate,
                 on_sort,
                 on_clear,
+                on_open_url,
             )
         }
         PluginId::Json => plugins.json().page().clone().into_any_element(),

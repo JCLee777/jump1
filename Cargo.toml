@@ -14,7 +14,24 @@ embed-resource = "=3.0.11"
 [dependencies]
 chrono = "=0.4.45"
 global-hotkey = "=0.8.0"
-gpui-kit = { version = "=0.7.0", features = ["tree-sitter", "tree-sitter-yaml"] }
+gpui-kit = {
+  version = "=0.7.0",
+  features = [
+    "tree-sitter",
+    "tree-sitter-bash",
+    "tree-sitter-c",
+    "tree-sitter-css",
+    "tree-sitter-go",
+    "tree-sitter-html",
+    "tree-sitter-javascript",
+    "tree-sitter-markdown",
+    "tree-sitter-python",
+    "tree-sitter-rust",
+    "tree-sitter-toml",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+  ],
+}
 image = {
   version = "=0.25.10",
   default-features = false,

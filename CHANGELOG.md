@@ -5,6 +5,16 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+### 简体中文
+
+- 汉化剪切板历史中的类型标签和图片名称。
+- 剪切板预览支持打开网页链接，并为 JSON、YAML 和常见代码格式添加语法高亮。
+
+### English
+
+- Localized clipboard history type labels and image titles.
+- Added browser opening for clipboard links and syntax highlighting for JSON, YAML, and common code formats.
+
 ## [0.1.16] - 2026-10-16
 
 ### 简体中文

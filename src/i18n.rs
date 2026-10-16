@@ -1,6 +1,9 @@
 //! Small, typed localization boundary for product-facing text.
 
-use crate::plugin::protocol::{ResultDetail, ResultKind, ResultTitle};
+use crate::plugin::{
+    clipboard::ClipboardFormat,
+    protocol::{ResultDetail, ResultKind, ResultTitle},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Locale {
@@ -546,6 +549,43 @@ impl I18n {
         match self.locale {
             Locale::ZhCn => format!("{visible} 条结果 · 共保存 {total} 条"),
             Locale::EnUs => format!("{visible} results · {total} saved"),
+        }
+    }
+
+    pub fn clipboard_format_label(&self, format: ClipboardFormat) -> &'static str {
+        if self.locale == Locale::EnUs {
+            return format.label();
+        }
+        match format {
+            ClipboardFormat::PlainText => "文本",
+            ClipboardFormat::Json => "JSON",
+            ClipboardFormat::Yaml => "YAML",
+            ClipboardFormat::Http => "HTTP 请求",
+            ClipboardFormat::Bash => "命令",
+            ClipboardFormat::Sql => "SQL",
+            ClipboardFormat::Html => "HTML",
+            ClipboardFormat::Xml => "XML",
+            ClipboardFormat::Markdown => "Markdown",
+            ClipboardFormat::Email => "邮件",
+            ClipboardFormat::Jwt => "JWT",
+            ClipboardFormat::Pdf => "PDF",
+            ClipboardFormat::Word => "Word 文档",
+            ClipboardFormat::Spreadsheet => "表格",
+            ClipboardFormat::Presentation => "幻灯片",
+            ClipboardFormat::Image => "图片",
+            ClipboardFormat::Audio => "音频",
+            ClipboardFormat::Video => "视频",
+            ClipboardFormat::Archive => "压缩包",
+            ClipboardFormat::Code => "代码",
+            ClipboardFormat::Folder => "文件夹",
+            ClipboardFormat::File => "文件",
+        }
+    }
+
+    pub fn clipboard_image_suffix(&self) -> &'static str {
+        match self.locale {
+            Locale::ZhCn => "图片",
+            Locale::EnUs => "image",
         }
     }
 

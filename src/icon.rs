@@ -6,7 +6,9 @@ use gpui_kit::{Hsla, Pixels, Styled, component::Icon};
 pub enum Glyph {
     Search,
     Application,
+    ArrowDown,
     ArrowLeft,
+    ArrowUp,
     Appearance,
     Audio,
     Clipboard,
@@ -31,7 +33,9 @@ impl Glyph {
         match self {
             Self::Search => include_bytes!("../assets/icons/search.svg"),
             Self::Application => include_bytes!("../assets/icons/application.svg"),
+            Self::ArrowDown => include_bytes!("../assets/icons/arrow-down.svg"),
             Self::ArrowLeft => include_bytes!("../assets/icons/arrow-left.svg"),
+            Self::ArrowUp => include_bytes!("../assets/icons/arrow-up.svg"),
             Self::Appearance => include_bytes!("../assets/icons/appearance.svg"),
             Self::Audio => include_bytes!("../assets/icons/audio.svg"),
             Self::Clipboard => include_bytes!("../assets/icons/clipboard.svg"),

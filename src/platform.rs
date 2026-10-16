@@ -702,14 +702,9 @@ pub(crate) fn write_image_to_clipboard(
     windows_platform::write_image_to_clipboard(window, image)
 }
 
+#[cfg(target_os = "windows")]
 pub(crate) fn acquire_single_instance() -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        return windows_platform::acquire_single_instance();
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    true
+    windows_platform::acquire_single_instance()
 }
 
 pub fn launch_at_login_enabled() -> bool {

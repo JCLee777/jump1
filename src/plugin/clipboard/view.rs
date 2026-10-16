@@ -1,9 +1,13 @@
 //! Clipboard plugin page. Navigation stays in the application shell.
 
-use std::{rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use gpui_kit::{
     component::input::{Input, InputState},
+    component::{
+        Rope,
+        highlighter::{LanguageRegistry, SyntaxHighlighter},
+    },
     prelude::*,
     *,
 };
@@ -20,6 +24,11 @@ pub type BackHandler = Rc<dyn for<'a, 'b> Fn(&'a mut Window, &'b mut App)>;
 pub type ActivateHandler = Rc<dyn for<'a, 'b> Fn(usize, &'a mut Window, &'b mut App)>;
 pub type SortHandler = Rc<dyn for<'a, 'b> Fn(ClipboardSortMode, &'a mut Window, &'b mut App)>;
 pub type ClearHandler = Rc<dyn for<'a, 'b> Fn(&'a mut Window, &'b mut App)>;
+pub type OpenUrlHandler = Rc<dyn for<'a, 'b> Fn(String, &'a mut Window, &'b mut App)>;
+
+thread_local! {
+    static CLIPBOARD_HIGHLIGHTERS: RefCell<HashMap<String, SyntaxHighlighter>> = RefCell::new(HashMap::new());
+}
 
 const MAX_PREVIEW_CHARACTERS: usize = 16_000;
 const ENTRY_TITLE_PREVIEW_CHARACTERS: usize = 96;
@@ -41,6 +50,7 @@ pub fn render(
     on_activate: ActivateHandler,
     on_sort: SortHandler,
     on_clear: ClearHandler,
+    on_open_url: OpenUrlHandler,
 ) -> AnyElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
@@ -171,7 +181,14 @@ pub fn render(
             preview_entry,
             |this, entry| {
                 this.child(div().w(theme.metrics.divider).bg(colors.border))
-                    .child(preview_panel(selected, &entry, preview_image, i18n, theme))
+                    .child(preview_panel(
+                        selected,
+                        &entry,
+                        preview_image,
+                        i18n,
+                        theme,
+                        on_open_url,
+                    ))
             },
         ))
         .child(status_bar(
@@ -192,10 +209,16 @@ fn preview_panel(
     image: Option<Arc<RenderImage>>,
     i18n: &I18n,
     theme: &AppTheme,
+    on_open_url: OpenUrlHandler,
 ) -> impl IntoElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
     let typography = &theme.semantic.typography;
+    let url = match &entry.content {
+        ClipboardContent::Text(text) => browser_url(text),
+        ClipboardContent::Image { .. } | ClipboardContent::Files(_) => None,
+    };
+    let hover_background = theme.materials.hover;
 
     div()
         .id("clipboard-preview")
@@ -218,8 +241,27 @@ fn preview_panel(
                         .text_size(typography.sm.size)
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_ellipsis()
-                        .child(entry_title(entry)),
-                ),
+                        .child(entry_title(entry, i18n)),
+                )
+                .when_some(url, |this, url| {
+                    let open_url = on_open_url.clone();
+                    this.child(
+                        div()
+                            .id("clipboard-open-url")
+                            .flex()
+                            .items_center()
+                            .gap(spacing.xs)
+                            .px(spacing.sm)
+                            .py(spacing.xs)
+                            .rounded(theme.semantic.radius.sm)
+                            .cursor_pointer()
+                            .text_size(typography.xs.size)
+                            .text_color(colors.primary)
+                            .hover(move |this| this.bg(hover_background))
+                            .on_click(move |_, window, cx| open_url(url.clone(), window, cx))
+                            .child(glyph(Glyph::Web, theme.metrics.result_icon, colors.primary)),
+                    )
+                }),
         )
         .child(div().h(theme.metrics.divider).bg(colors.border))
         .child(
@@ -251,6 +293,8 @@ fn preview_content(
                 .char_indices()
                 .nth(MAX_PREVIEW_CHARACTERS)
                 .map_or(text.len(), |(offset, _)| offset);
+            let preview_text = &text[..end];
+            let highlights = syntax_highlights(preview_text, entry.format, theme);
             div()
                 .w_full()
                 .flex()
@@ -261,7 +305,9 @@ fn preview_content(
                         .font_family(typography.mono.clone())
                         .text_size(typography.sm.size)
                         .line_height(typography.sm.line_height)
-                        .child(text[..end].to_owned()),
+                        .child(
+                            StyledText::new(preview_text.to_owned()).with_highlights(highlights),
+                        ),
                 )
                 .when(end < text.len(), |this| {
                     this.child(
@@ -321,6 +367,258 @@ fn preview_content(
     }
 }
 
+fn syntax_highlights(
+    text: &str,
+    format: ClipboardFormat,
+    theme: &AppTheme,
+) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+    let Some(language) = preview_language(text, format) else {
+        return Vec::new();
+    };
+    if LanguageRegistry::singleton().language(language).is_none() {
+        if language == "sql" {
+            return sql_highlights(text, theme);
+        }
+        return Vec::new();
+    }
+
+    CLIPBOARD_HIGHLIGHTERS.with(|highlighters| {
+        let mut highlighters = highlighters.borrow_mut();
+        let highlighter = highlighters
+            .entry(language.to_owned())
+            .or_insert_with(|| SyntaxHighlighter::new(language));
+        let rope = Rope::from_str(text);
+        highlighter.update(None, &rope, None);
+        highlighter.styles(&(0..text.len()), theme.highlight_theme.as_ref())
+    })
+}
+
+fn sql_highlights(text: &str, theme: &AppTheme) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+    let syntax = &theme.highlight_theme.style.syntax;
+    let keyword_style = syntax.style("keyword").unwrap_or_default();
+    let string_style = syntax.style("string").unwrap_or_default();
+    let number_style = syntax.style("number").unwrap_or_default();
+    let comment_style = syntax.style("comment").unwrap_or_default();
+    let function_style = syntax.style("function").unwrap_or_default();
+    let boolean_style = syntax.style("boolean").unwrap_or(keyword_style);
+    let bytes = text.as_bytes();
+    let mut highlights = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        let start = index;
+        let style = if bytes[index] == b'-' && bytes.get(index + 1) == Some(&b'-') {
+            index += 2;
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+            Some(comment_style)
+        } else if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'*') {
+            index += 2;
+            while index + 1 < bytes.len() && !(bytes[index] == b'*' && bytes[index + 1] == b'/') {
+                index += 1;
+            }
+            index = (index + 2).min(bytes.len());
+            Some(comment_style)
+        } else if bytes[index] == b'\'' {
+            index += 1;
+            while index < bytes.len() {
+                if bytes[index] == b'\'' {
+                    index += 1;
+                    if bytes.get(index) == Some(&b'\'') {
+                        index += 1;
+                        continue;
+                    }
+                    break;
+                }
+                index += 1;
+            }
+            Some(string_style)
+        } else if bytes[index].is_ascii_digit() {
+            index += 1;
+            while index < bytes.len()
+                && (bytes[index].is_ascii_digit() || matches!(bytes[index], b'.' | b'_'))
+            {
+                index += 1;
+            }
+            Some(number_style)
+        } else if bytes[index].is_ascii_alphabetic() || bytes[index] == b'_' {
+            index += 1;
+            while index < bytes.len()
+                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+            {
+                index += 1;
+            }
+            let token = text[start..index].to_ascii_lowercase();
+            if matches!(token.as_str(), "true" | "false") {
+                Some(boolean_style)
+            } else if matches!(
+                token.as_str(),
+                "all"
+                    | "alter"
+                    | "and"
+                    | "as"
+                    | "asc"
+                    | "between"
+                    | "by"
+                    | "case"
+                    | "create"
+                    | "cross"
+                    | "delete"
+                    | "desc"
+                    | "distinct"
+                    | "drop"
+                    | "else"
+                    | "end"
+                    | "except"
+                    | "exists"
+                    | "foreign"
+                    | "from"
+                    | "full"
+                    | "group"
+                    | "having"
+                    | "in"
+                    | "index"
+                    | "inner"
+                    | "insert"
+                    | "intersect"
+                    | "into"
+                    | "is"
+                    | "join"
+                    | "key"
+                    | "left"
+                    | "like"
+                    | "limit"
+                    | "not"
+                    | "null"
+                    | "offset"
+                    | "on"
+                    | "or"
+                    | "order"
+                    | "outer"
+                    | "primary"
+                    | "references"
+                    | "right"
+                    | "select"
+                    | "set"
+                    | "table"
+                    | "then"
+                    | "union"
+                    | "unique"
+                    | "update"
+                    | "values"
+                    | "when"
+                    | "where"
+            ) {
+                Some(keyword_style)
+            } else if bytes.get(index) == Some(&b'(') {
+                Some(function_style)
+            } else {
+                None
+            }
+        } else {
+            index += 1;
+            None
+        };
+
+        if let Some(style) = style {
+            highlights.push((start..index, style));
+        }
+    }
+
+    highlights
+}
+
+fn preview_language(text: &str, format: ClipboardFormat) -> Option<&'static str> {
+    let known_language = match format {
+        ClipboardFormat::Json => Some("json"),
+        ClipboardFormat::Yaml => Some("yaml"),
+        ClipboardFormat::Bash => Some("bash"),
+        ClipboardFormat::Sql => Some("sql"),
+        ClipboardFormat::Html | ClipboardFormat::Xml => Some("html"),
+        ClipboardFormat::Markdown => Some("markdown"),
+        ClipboardFormat::Code | ClipboardFormat::PlainText => None,
+        ClipboardFormat::Http
+        | ClipboardFormat::Email
+        | ClipboardFormat::Jwt
+        | ClipboardFormat::Pdf
+        | ClipboardFormat::Word
+        | ClipboardFormat::Spreadsheet
+        | ClipboardFormat::Presentation
+        | ClipboardFormat::Image
+        | ClipboardFormat::Audio
+        | ClipboardFormat::Video
+        | ClipboardFormat::Archive
+        | ClipboardFormat::Folder
+        | ClipboardFormat::File => return None,
+    };
+    known_language.or_else(|| infer_code_language(text))
+}
+
+fn infer_code_language(text: &str) -> Option<&'static str> {
+    let trimmed = text.trim_start();
+    if trimmed.starts_with("#!") || trimmed.starts_with("set -") || trimmed.starts_with("export ") {
+        Some("bash")
+    } else if trimmed.starts_with("fn ")
+        || trimmed.starts_with("pub fn ")
+        || trimmed.starts_with("use ")
+        || trimmed.starts_with("struct ")
+        || trimmed.starts_with("impl ")
+    {
+        Some("rust")
+    } else if trimmed.starts_with("def ")
+        || trimmed.starts_with("class ")
+        || trimmed.starts_with("from ")
+        || trimmed.starts_with("import ")
+            && !trimmed.starts_with("import {")
+            && !trimmed.contains(" from ")
+        || trimmed.starts_with("print(")
+    {
+        Some("python")
+    } else if trimmed.starts_with("package ") || trimmed.starts_with("func ") {
+        Some("go")
+    } else if trimmed.starts_with("#include ") {
+        Some("c")
+    } else if trimmed.starts_with("interface ")
+        || trimmed.starts_with("type ") && trimmed.contains(" = ")
+    {
+        Some("typescript")
+    } else if trimmed.starts_with("const ")
+        || trimmed.starts_with("let ")
+        || trimmed.starts_with("function ")
+        || trimmed.starts_with("import {")
+        || trimmed.contains(" from ") && trimmed.starts_with("import ")
+        || trimmed.starts_with("console.")
+        || trimmed.contains(" => ")
+    {
+        Some("javascript")
+    } else if trimmed.starts_with("[package]") || trimmed.starts_with("[dependencies]") {
+        Some("toml")
+    } else if trimmed.starts_with("@media ")
+        || trimmed.starts_with("@import ")
+        || trimmed.starts_with(":root")
+        || trimmed.starts_with(".") && trimmed.contains('{')
+        || trimmed.starts_with('#') && trimmed.contains('{')
+    {
+        Some("css")
+    } else if trimmed.starts_with('<') && trimmed.contains('>') {
+        Some("html")
+    } else {
+        None
+    }
+}
+
+fn browser_url(text: &str) -> Option<String> {
+    let value = text.trim();
+    let normalized = if value.starts_with("www.") {
+        format!("https://{value}")
+    } else {
+        value.to_owned()
+    };
+    let url = reqwest::Url::parse(&normalized).ok()?;
+    matches!(url.scheme(), "http" | "https").then_some(normalized)
+}
+
 fn preview_image(image: Arc<RenderImage>, theme: &AppTheme) -> AnyElement {
     img(image)
         .w_full()
@@ -352,11 +650,11 @@ fn clipboard_row(
     let selected_control_background = theme.materials.selection_control;
     let hover_background = theme.materials.hover;
     let control_background = theme.materials.control;
-    let title = entry_title(&entry);
+    let title = entry_title(&entry, i18n);
     let detail =
         i18n.clipboard_entry_detail(entry.content.size(), entry.captured_at, entry.use_count);
     let icon = entry_icon(&entry);
-    let format_label = entry.format.label();
+    let format_label = i18n.clipboard_format_label(entry.format);
 
     div()
         .id(format!("clipboard-{index}"))
@@ -530,11 +828,15 @@ fn entry_icon(entry: &ClipboardEntry) -> Glyph {
     }
 }
 
-fn entry_title(entry: &ClipboardEntry) -> String {
+fn entry_title(entry: &ClipboardEntry, i18n: &I18n) -> String {
     match &entry.content {
         ClipboardContent::Text(text) => preview(text),
         ClipboardContent::Image { format, .. } => {
-            format!("{} image", format.extension().to_uppercase())
+            format!(
+                "{} {}",
+                format.extension().to_uppercase(),
+                i18n.clipboard_image_suffix()
+            )
         }
         ClipboardContent::Files(paths) => {
             let names = paths
