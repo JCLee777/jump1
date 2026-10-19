@@ -392,6 +392,7 @@ impl PluginManager {
             .position(|result| result.kind == ResultKind::Web)
             .unwrap_or(results.len());
         results.splice(insertion..insertion, plugin_results);
+        self.launcher.sort_home_entries(&mut results);
         results
     }
 
@@ -559,6 +560,10 @@ impl PluginManager {
 
     pub fn record_application_usage(&mut self, application: &protocol::ApplicationEntry) {
         self.launcher.record_application(application);
+    }
+
+    pub fn record_launcher_entry_usage(&mut self, action: &protocol::CommandAction) {
+        self.launcher.record_entry_usage(action);
     }
 
     pub fn apply_setting(

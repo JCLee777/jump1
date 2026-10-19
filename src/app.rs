@@ -829,23 +829,25 @@ impl Jump1Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if let CommandAction::OpenPlugin(plugin) = action {
-            self.show_plugin(plugin, window, cx);
+        if let CommandAction::OpenPlugin(plugin) = &action {
+            self.plugins.record_launcher_entry_usage(&action);
+            self.show_plugin(*plugin, window, cx);
             return true;
         }
-        let result = match action {
-            CommandAction::Application(app) => {
-                let result = platform::launch_app(&app);
-                if result.is_ok() {
-                    self.plugins.record_application_usage(&app);
-                }
-                result
-            }
-            CommandAction::Path(path) => platform::open_path(&path),
-            CommandAction::Url(url) => platform::open_url(&url),
+        let result = match &action {
+            CommandAction::Application(app) => platform::launch_app(app),
+            CommandAction::Path(path) => platform::open_path(path),
+            CommandAction::Url(url) => platform::open_url(url),
             CommandAction::OpenPlugin(_) => unreachable!(),
         };
         let succeeded = result.is_ok();
+        if succeeded {
+            match &action {
+                CommandAction::Application(app) => self.plugins.record_application_usage(app),
+                CommandAction::Path(_) => self.plugins.record_launcher_entry_usage(&action),
+                CommandAction::OpenPlugin(_) | CommandAction::Url(_) => {}
+            }
+        }
         self.status = Some(match result {
             Ok(()) => self.i18n.text(Message::OpenSuccess).into(),
             Err(error) => self.i18n.open_error(&error),

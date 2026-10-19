@@ -10,6 +10,7 @@ use crate::plugin::api::{Plugin, PluginKind, PluginManifest, PluginPermission};
 
 const DEFAULT_RECENT_LIMIT: usize = 6;
 const MAX_RECENT_APPLICATIONS: usize = 20;
+const DEFAULT_SORT_ENTRIES_BY_USAGE: bool = true;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LauncherVisibilityItem {
@@ -72,6 +73,32 @@ impl LauncherVisibilityItem {
         }
     }
 
+    fn for_result_title(title: &crate::plugin::protocol::ResultTitle) -> Option<Self> {
+        use crate::plugin::protocol::ResultTitle;
+
+        match title {
+            ResultTitle::ClipboardPlugin => Some(Self::Clipboard),
+            ResultTitle::SettingsPlugin => Some(Self::Settings),
+            ResultTitle::JsonPlugin => Some(Self::Json),
+            ResultTitle::YamlPlugin => Some(Self::Yaml),
+            ResultTitle::TranslatePlugin => Some(Self::Translate),
+            _ => Self::for_result(title),
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Clipboard => 0,
+            Self::Settings => 1,
+            Self::Json => 2,
+            Self::Yaml => 3,
+            Self::Translate => 4,
+            Self::HomeFolder => 5,
+            Self::DownloadsFolder => 6,
+            Self::DocumentsFolder => 7,
+        }
+    }
+
     fn title(self, i18n: &crate::i18n::I18n) -> String {
         use crate::{i18n::Message, plugin::protocol::ResultTitle};
 
@@ -100,6 +127,8 @@ pub struct LauncherPlugin {
     apps: Vec<ApplicationEntry>,
     recent_paths: Vec<std::path::PathBuf>,
     recent_limit: usize,
+    sort_entries_by_usage: bool,
+    entry_usage: [u64; LauncherVisibilityItem::ALL.len()],
     hidden_entries: Vec<LauncherVisibilityItem>,
     storage: Option<crate::plugin::storage::PluginStorage>,
 }
@@ -117,6 +146,32 @@ impl LauncherPlugin {
             .and_then(|storage| storage.read("recent.bin"))
             .map(|bytes| decode_recent_paths(&bytes))
             .unwrap_or_default();
+        let sort_entries_by_usage = storage
+            .as_ref()
+            .and_then(|storage| storage.read_text("entry-sort.conf"))
+            .map(|value| match value.trim() {
+                "default" => false,
+                "usage" => true,
+                _ => DEFAULT_SORT_ENTRIES_BY_USAGE,
+            })
+            .unwrap_or(DEFAULT_SORT_ENTRIES_BY_USAGE);
+        let mut entry_usage = [0; LauncherVisibilityItem::ALL.len()];
+        if let Some(value) = storage
+            .as_ref()
+            .and_then(|storage| storage.read_text("entry-usage.conf"))
+        {
+            for line in value.lines() {
+                let Some((key, count)) = line.split_once('=') else {
+                    continue;
+                };
+                let (Some(item), Ok(count)) =
+                    (LauncherVisibilityItem::from_key(key), count.parse::<u64>())
+                else {
+                    continue;
+                };
+                entry_usage[item.index()] = count;
+            }
+        }
         let hidden_entries = storage
             .as_ref()
             .and_then(|storage| storage.read_text("hidden-entries.conf"))
@@ -137,6 +192,8 @@ impl LauncherPlugin {
             apps: Vec::new(),
             recent_paths,
             recent_limit,
+            sort_entries_by_usage,
+            entry_usage,
             hidden_entries,
             storage,
         }
@@ -185,6 +242,50 @@ impl LauncherPlugin {
         self.persist_recent();
     }
 
+    pub fn record_entry_usage(&mut self, action: &crate::plugin::protocol::CommandAction) {
+        use crate::plugin::protocol::CommandAction;
+
+        let item = match action {
+            CommandAction::OpenPlugin(plugin) => LauncherVisibilityItem::for_plugin(*plugin),
+            CommandAction::Path(path) => crate::platform::home_dir().and_then(|home| {
+                if path == &home {
+                    Some(LauncherVisibilityItem::HomeFolder)
+                } else if path == &home.join("Downloads") {
+                    Some(LauncherVisibilityItem::DownloadsFolder)
+                } else if path == &home.join("Documents") {
+                    Some(LauncherVisibilityItem::DocumentsFolder)
+                } else {
+                    None
+                }
+            }),
+            _ => None,
+        };
+        let Some(item) = item else {
+            return;
+        };
+        let count = &mut self.entry_usage[item.index()];
+        *count = count.saturating_add(1);
+        self.persist_entry_usage();
+    }
+
+    pub fn sort_home_entries(&self, results: &mut [SearchResult]) {
+        if !self.sort_entries_by_usage || !self.query.trim().is_empty() {
+            return;
+        }
+
+        let first_entry = results
+            .iter()
+            .take_while(|result| result.kind == ResultKind::RecentApplication)
+            .count();
+        results[first_entry..].sort_by_key(|result| {
+            std::cmp::Reverse(
+                LauncherVisibilityItem::for_result_title(&result.title)
+                    .map(|item| self.entry_usage[item.index()])
+                    .unwrap_or(0),
+            )
+        });
+    }
+
     pub fn setting_definitions(
         &self,
         i18n: &crate::i18n::I18n,
@@ -202,6 +303,33 @@ impl LauncherPlugin {
                 .collect(),
             selected: self.recent_limit.to_string(),
         }];
+        definitions.push(crate::plugin::settings::SettingDefinition {
+            plugin: crate::plugin::PluginId::Launcher,
+            key: "entry_sort",
+            title: i18n.text(crate::i18n::Message::LauncherEntrySort).into(),
+            description: i18n
+                .text(crate::i18n::Message::LauncherEntrySortDescription)
+                .into(),
+            options: [
+                (
+                    "usage".to_owned(),
+                    i18n.text(crate::i18n::Message::LauncherSortByUsage)
+                        .to_owned(),
+                ),
+                (
+                    "default".to_owned(),
+                    i18n.text(crate::i18n::Message::LauncherSortDefault)
+                        .to_owned(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            selected: if self.sort_entries_by_usage {
+                "usage".to_owned()
+            } else {
+                "default".to_owned()
+            },
+        });
         definitions.extend(LauncherVisibilityItem::ALL.into_iter().map(|item| {
             let description = if item.is_plugin() {
                 crate::i18n::Message::LauncherPluginVisibilityDescription
@@ -238,6 +366,16 @@ impl LauncherPlugin {
     }
 
     pub fn apply_setting(&mut self, key: &str, value: &str) -> bool {
+        if key == "entry_sort" {
+            self.sort_entries_by_usage = match value {
+                "usage" => true,
+                "default" => false,
+                _ => return false,
+            };
+            self.persist_entry_sort();
+            return true;
+        }
+
         if key == "recent_limit" {
             let Ok(limit) = value.parse::<usize>() else {
                 return false;
@@ -319,6 +457,33 @@ impl LauncherPlugin {
             .collect::<Vec<_>>()
             .join("\n");
         let _ = storage.write_text_atomic("hidden-entries.conf", &hidden);
+    }
+
+    fn persist_entry_sort(&self) {
+        let Some(storage) = &self.storage else {
+            return;
+        };
+        let value = if self.sort_entries_by_usage {
+            "usage"
+        } else {
+            "default"
+        };
+        let _ = storage.write_text_atomic("entry-sort.conf", value);
+    }
+
+    fn persist_entry_usage(&self) {
+        let Some(storage) = &self.storage else {
+            return;
+        };
+        let usage = LauncherVisibilityItem::ALL
+            .into_iter()
+            .filter_map(|item| {
+                let count = self.entry_usage[item.index()];
+                (count > 0).then(|| format!("{}={count}", item.key()))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _ = storage.write_text_atomic("entry-usage.conf", &usage);
     }
 }
 

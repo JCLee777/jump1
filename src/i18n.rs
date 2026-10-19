@@ -213,6 +213,12 @@ impl I18n {
             (Locale::ZhCn, Message::RecentApplications) => "最近使用",
             (Locale::ZhCn, Message::LauncherRecentLimit) => "最近使用数量",
             (Locale::ZhCn, Message::LauncherRecentLimitDescription) => "主页显示的最近应用数量",
+            (Locale::ZhCn, Message::LauncherEntrySort) => "快捷入口排序",
+            (Locale::ZhCn, Message::LauncherEntrySortDescription) => {
+                "设置首页文件夹和插件入口的排序方式"
+            }
+            (Locale::ZhCn, Message::LauncherSortByUsage) => "按使用次数",
+            (Locale::ZhCn, Message::LauncherSortDefault) => "默认顺序",
             (Locale::ZhCn, Message::LauncherPluginVisibilityDescription) => {
                 "控制此插件是否出现在主页默认列表中，仍可搜索打开"
             }
@@ -414,6 +420,12 @@ impl I18n {
             (Locale::EnUs, Message::LauncherRecentLimitDescription) => {
                 "Number of recent applications shown on the home page"
             }
+            (Locale::EnUs, Message::LauncherEntrySort) => "Quick entry order",
+            (Locale::EnUs, Message::LauncherEntrySortDescription) => {
+                "Choose how home folders and plugin entries are ordered"
+            }
+            (Locale::EnUs, Message::LauncherSortByUsage) => "By usage",
+            (Locale::EnUs, Message::LauncherSortDefault) => "Default order",
             (Locale::EnUs, Message::LauncherPluginVisibilityDescription) => {
                 "Show in the home list; hidden plugins remain searchable"
             }
@@ -752,6 +764,10 @@ pub enum Message {
     RecentApplications,
     LauncherRecentLimit,
     LauncherRecentLimitDescription,
+    LauncherEntrySort,
+    LauncherEntrySortDescription,
+    LauncherSortByUsage,
+    LauncherSortDefault,
     LauncherPluginVisibilityDescription,
     LauncherQuickActionVisibilityDescription,
     LauncherVisibilityShow,
