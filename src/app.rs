@@ -1,6 +1,7 @@
 use std::{rc::Rc, time::Duration};
 
 use gpui_kit::{
+    base::InteractiveElementExt as _,
     component::{
         input::{InputEvent, InputState},
         theme::{Theme, ThemeMode},
@@ -14,7 +15,7 @@ use crate::{
     i18n::{I18n, Message},
     platform,
     plugin::{
-        PluginCommand, PluginEvent, PluginId, PluginManager,
+        ExternalOpenGuard, PluginCommand, PluginEvent, PluginId, PluginManager,
         clipboard::{
             ClipboardFilterMode, ClipboardFormat, ClipboardPreviewImageAsset,
             view::ClipboardPinnedView,
@@ -58,6 +59,17 @@ pub(crate) struct Jump1Shell {
     editing_shortcut_query: Option<u64>,
     shortcut_conflicts: Vec<u64>,
     previous_application: Option<platform::ApplicationTarget>,
+    external_open_guard: ExternalOpenGuard,
+}
+
+struct MainWindowDragState {
+    should_move: bool,
+}
+
+impl Render for MainWindowDragState {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
 }
 
 impl Jump1Shell {
@@ -67,6 +79,7 @@ impl Jump1Shell {
         cx: &mut Context<Self>,
     ) -> Self {
         let preferences = Preferences::load();
+        let external_open_guard = ExternalOpenGuard::default();
         let i18n = I18n::new(preferences.locale);
         let input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(i18n.text(Message::SearchPlaceholder))
@@ -376,7 +389,11 @@ impl Jump1Shell {
             cx.notify();
         });
         let activation_subscription = cx.observe_window_activation(window, |this, window, cx| {
-            if !window.is_window_active() {
+            if window.is_window_active() {
+                this.external_open_guard.clear();
+            } else if this.external_open_guard.should_preserve_panel() {
+                // A link opened an external app; keep the launcher visible while focus moves.
+            } else {
                 this.hide_panel(window, cx);
             }
         });
@@ -387,7 +404,13 @@ impl Jump1Shell {
                 shell.handle_plugin_event(event, window, cx);
             });
         });
-        let mut plugins = PluginManager::load(preferences, plugin_event_handler, window, cx);
+        let mut plugins = PluginManager::load(
+            preferences,
+            plugin_event_handler,
+            external_open_guard.clone(),
+            window,
+            cx,
+        );
         let global_shortcuts = GlobalShortcuts::register(plugins.shortcuts().bindings()).ok();
         if let Some(shortcuts) = global_shortcuts.as_ref() {
             let launcher_id = shortcuts.launcher_id();
@@ -519,6 +542,7 @@ impl Jump1Shell {
             editing_shortcut_query: None,
             shortcut_conflicts,
             previous_application,
+            external_open_guard,
         }
     }
 
@@ -1195,6 +1219,7 @@ impl Jump1Shell {
 
 impl Render for Jump1Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let drag_state = window.use_state(cx, |_, _| MainWindowDragState { should_move: false });
         let clipboard_preview_image = if self.plugins.active() == PluginId::Clipboard
             && self.plugins.clipboard().preview_open()
         {
@@ -1442,6 +1467,52 @@ impl Render for Jump1Shell {
         } else {
             content
         };
+        let content = div().relative().size_full().child(content).child(
+            div()
+                .id("main-window-drag-region")
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .h(theme.metrics.header_top)
+                .window_control_area(WindowControlArea::Drag)
+                .on_mouse_down_out(window.listener_for(&drag_state, |state, _, _, _| {
+                    state.should_move = false;
+                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    window.listener_for(&drag_state, |state, _, _, _| {
+                        state.should_move = true;
+                    }),
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    window.listener_for(&drag_state, |state, _, _, _| {
+                        state.should_move = false;
+                    }),
+                )
+                .on_mouse_move(window.listener_for(&drag_state, |state, _, window, _| {
+                    if state.should_move {
+                        state.should_move = false;
+                        window.start_window_move();
+                    }
+                }))
+                .on_double_click(|_, window, _| window.zoom_window()),
+        );
+        #[cfg(all(feature = "dev-profiler", debug_assertions))]
+        let content = content.capture_key_down(|event, window, _| {
+            let modifiers = event.keystroke.modifiers;
+            if !event.is_held
+                && event.keystroke.key.eq_ignore_ascii_case("p")
+                && modifiers.control
+                && modifiers.shift
+                && !modifiers.alt
+                && !modifiers.platform
+                && !modifiers.function
+            {
+                window.cycle_debug_frame_overlay_mode();
+            }
+        });
         #[cfg(target_os = "macos")]
         {
             content

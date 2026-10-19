@@ -29,6 +29,7 @@ pub fn run() {
     let start_in_background = false;
 
     application()
+        .with_http_client(network::gpui_http_client())
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
@@ -53,6 +54,7 @@ pub fn run() {
                         appears_transparent: true,
                         ..Default::default()
                     }),
+                    app_owns_titlebar_drag: true,
                     is_resizable: true,
                     is_minimizable: false,
                     window_min_size: Some(theme::window_min_size()),

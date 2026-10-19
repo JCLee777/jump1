@@ -111,7 +111,9 @@ pub fn render(
                 .h_full()
                 .flex()
                 .flex_col()
-                .p(spacing.md)
+                .px(spacing.md)
+                .pt(theme.metrics.header_top)
+                .pb(spacing.md)
                 .border_r_1()
                 .border_color(colors.border)
                 .bg(theme.materials.sidebar)
@@ -211,7 +213,7 @@ pub fn render(
                 .flex()
                 .flex_col()
                 .px(spacing.xl)
-                .pt(spacing.xl)
+                .pt(theme.metrics.header_top)
                 .gap(spacing.lg)
                 .child(content_heading(content_title, content_description, theme))
                 .child(
@@ -680,6 +682,11 @@ fn plugin_presentation(plugin: PluginId, i18n: &I18n) -> (&'static str, &'static
         ),
         PluginId::Json => (Message::JsonName, Message::JsonDescription, Glyph::Json),
         PluginId::Yaml => (Message::YamlName, Message::YamlDescription, Glyph::Yaml),
+        PluginId::Markdown => (
+            Message::MarkdownName,
+            Message::MarkdownDescription,
+            Glyph::Markdown,
+        ),
         PluginId::Translate => (
             Message::TranslateName,
             Message::TranslateSettingsDescription,

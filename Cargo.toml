@@ -1,6 +1,6 @@
 [package]
 name = "jump1"
-version = "0.1.23"
+version = "0.1.24"
 edition = "2024"
 publish = false
 description = "A fast, lightweight desktop launcher and utility toolkit built with Rust and GPUI."
@@ -8,11 +8,16 @@ license = "MIT"
 readme = "README.md"
 build = "build.rs"
 
+[features]
+dev-profiler = ["gpui-kit/profiler"]
+
 [build-dependencies]
 embed-resource = "=3.0.11"
 
 [dependencies]
 chrono = "=0.4.45"
+data-url = "=0.3.2"
+futures = "=0.3.34"
 global-hotkey = "=0.8.0"
 gpui-kit = {
   version = "=0.7.0",

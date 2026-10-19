@@ -18,6 +18,7 @@ enum LauncherVisibilityItem {
     Settings,
     Json,
     Yaml,
+    Markdown,
     Translate,
     HomeFolder,
     DownloadsFolder,
@@ -25,11 +26,12 @@ enum LauncherVisibilityItem {
 }
 
 impl LauncherVisibilityItem {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Clipboard,
         Self::Settings,
         Self::Json,
         Self::Yaml,
+        Self::Markdown,
         Self::Translate,
         Self::HomeFolder,
         Self::DownloadsFolder,
@@ -42,6 +44,7 @@ impl LauncherVisibilityItem {
             Self::Settings => "plugin_settings",
             Self::Json => "plugin_json",
             Self::Yaml => "plugin_yaml",
+            Self::Markdown => "plugin_markdown",
             Self::Translate => "plugin_translate",
             Self::HomeFolder => "quick_action_home",
             Self::DownloadsFolder => "quick_action_downloads",
@@ -59,6 +62,7 @@ impl LauncherVisibilityItem {
             crate::plugin::PluginId::Settings => Some(Self::Settings),
             crate::plugin::PluginId::Json => Some(Self::Json),
             crate::plugin::PluginId::Yaml => Some(Self::Yaml),
+            crate::plugin::PluginId::Markdown => Some(Self::Markdown),
             crate::plugin::PluginId::Translate => Some(Self::Translate),
             _ => None,
         }
@@ -81,6 +85,7 @@ impl LauncherVisibilityItem {
             ResultTitle::SettingsPlugin => Some(Self::Settings),
             ResultTitle::JsonPlugin => Some(Self::Json),
             ResultTitle::YamlPlugin => Some(Self::Yaml),
+            ResultTitle::MarkdownPlugin => Some(Self::Markdown),
             ResultTitle::TranslatePlugin => Some(Self::Translate),
             _ => Self::for_result(title),
         }
@@ -92,10 +97,11 @@ impl LauncherVisibilityItem {
             Self::Settings => 1,
             Self::Json => 2,
             Self::Yaml => 3,
-            Self::Translate => 4,
-            Self::HomeFolder => 5,
-            Self::DownloadsFolder => 6,
-            Self::DocumentsFolder => 7,
+            Self::Markdown => 4,
+            Self::Translate => 5,
+            Self::HomeFolder => 6,
+            Self::DownloadsFolder => 7,
+            Self::DocumentsFolder => 8,
         }
     }
 
@@ -107,6 +113,7 @@ impl LauncherVisibilityItem {
             Self::Settings => i18n.text(Message::SettingsName).into(),
             Self::Json => i18n.text(Message::JsonName).into(),
             Self::Yaml => i18n.text(Message::YamlName).into(),
+            Self::Markdown => i18n.text(Message::MarkdownName).into(),
             Self::Translate => i18n.text(Message::TranslateName).into(),
             Self::HomeFolder => i18n.result_title(&ResultTitle::OpenHome),
             Self::DownloadsFolder => i18n.result_title(&ResultTitle::OpenDownloads),
@@ -117,7 +124,12 @@ impl LauncherVisibilityItem {
     fn is_plugin(self) -> bool {
         matches!(
             self,
-            Self::Clipboard | Self::Settings | Self::Json | Self::Yaml | Self::Translate
+            Self::Clipboard
+                | Self::Settings
+                | Self::Json
+                | Self::Yaml
+                | Self::Markdown
+                | Self::Translate
         )
     }
 }

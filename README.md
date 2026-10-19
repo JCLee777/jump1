@@ -23,6 +23,7 @@
 - 内置剪切板历史插件，支持文本、图片和文件，提供类型标记、时间与使用频率排序、搜索、一键粘贴、收藏和 Ctrl+D 置顶便签；便签背景跟随主题色，清空历史时保留收藏。
 - 内置 JSON 编辑器插件，进入时自动读取并格式化剪切板中的有效 JSON，同时支持实时校验、压缩、键排序和草稿恢复。
 - 内置 YAML 编辑器插件，支持语法高亮、实时校验、格式化、键排序、剪切板导入和独立草稿恢复。
+- 内置 Markdown 编辑器插件，支持语法高亮、实时分栏预览、剪切板导入和独立草稿恢复。
 - 设置页支持全局主题、语言，以及插件贡献的设置项。
 - 插件 manifest 支持版本、权限、页面/服务类型和生命周期状态。
 - 内置翻译插件在打开时自动填入剪切板文本，并通过 OpenAI、DeepSeek 或自定义的 OpenAI 兼容 Chat Completions 接口翻译；根据原文自动在中文和英文之间选择翻译方向，结果可复制。服务商、模型、接口地址和 API Key 均保存在翻译插件的本地配置中，API Key 以明文存储。
@@ -38,6 +39,14 @@ cargo run
 ```bash
 cargo run --release
 ```
+
+开发时查看帧耗时：
+
+```bash
+cargo run --features dev-profiler
+```
+
+按 `Control + Shift + P` 在帧耗时、详细统计和关闭浮层之间切换。浮层显示 GPUI 帧绘制耗时及统计分布，不是持续刷新的 FPS 数字；功能只在开发构建中启用。
 
 ## macOS 安装包
 
@@ -101,8 +110,9 @@ Apple Silicon Mac、Intel Mac 和 x86_64 Windows 用户可在“设置 → 通�
 - `src/plugin/clipboard/`：剪切板插件、持久化和插件视图
 - `src/plugin/json/`：JSON 编辑器、校验、格式化和草稿持久化
 - `src/plugin/yaml/`：YAML 编辑器、校验、格式化和草稿持久化
+- `src/plugin/markdown/`：Markdown 编辑器、实时预览和草稿持久化
 - `src/plugin/translate/`：大模型翻译页面和服务商配置
-- `src/network.rs`：共享的 OpenAI 兼容 Chat Completions HTTP 客户端
+- `src/network.rs`：GPUI 资源加载和 OpenAI 兼容 Chat Completions 的共享 HTTP 客户端
 - `src/plugin/settings/`：主题和语言设置插件
 - `src/plugin/shortcuts/`：全局快捷方式与目标文本的独立持久化
 - `src/plugin/system/`：主题和语言等系统级设置插件
@@ -114,4 +124,4 @@ Apple Silicon Mac、Intel Mac 和 x86_64 Windows 用户可在“设置 → 通�
 
 ## 状态
 
-当前主页、剪切板、JSON/YAML 编辑器、翻译、快捷方式和设置已经按插件边界组织，并支持全局唤起。扩展插件执行和文件索引尚未实现。
+当前主页、剪切板、JSON/YAML/Markdown 编辑器、翻译、快捷方式和设置已经按插件边界组织，并支持全局唤起。扩展插件执行和文件索引尚未实现。
