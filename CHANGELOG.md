@@ -9,6 +9,18 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ### English
 
+## [0.1.25] - 2026-10-19
+
+### 简体中文
+
+- 改进 Windows 应用检索，加入开始菜单应用并获取更清晰的应用图标，支持启动 AppsFolder 应用。
+- 修复 Windows 固定剪贴板便笺缺少标题栏控件的问题。
+
+### English
+
+- Improved Windows app discovery by indexing Start menu apps, resolving clearer app icons, and launching AppsFolder apps.
+- Restored title bar controls for pinned clipboard notes on Windows.
+
 ## [0.1.24] - 2026-10-19
 
 ### 简体中文
