@@ -26,6 +26,9 @@ else
   BUILD_ARGS=(--release --locked)
   BINARY_PATH="$ROOT_DIR/target/release/jump1"
   ARCH_NAME="$(uname -m)"
+  if [[ "$ARCH_NAME" == "arm64" ]]; then
+    ARCH_NAME="aarch64"
+  fi
 fi
 
 DIST_DIR="$ROOT_DIR/dist"
@@ -44,6 +47,20 @@ trap cleanup EXIT
 
 echo "Building Jump1 $VERSION for $ARCH_NAME..."
 (cd "$ROOT_DIR" && cargo build "${BUILD_ARGS[@]}")
+
+case "$ARCH_NAME" in
+  aarch64) BINARY_ARCH="arm64" ;;
+  x86_64) BINARY_ARCH="x86_64" ;;
+  *)
+    echo "error: unsupported macOS architecture: $ARCH_NAME" >&2
+    exit 1
+    ;;
+esac
+
+if ! lipo -verify_arch "$BINARY_ARCH" "$BINARY_PATH" >/dev/null 2>&1; then
+  echo "error: $BINARY_PATH is not a $BINARY_ARCH executable" >&2
+  exit 1
+fi
 
 rm -rf "$WORK_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$DMG_ROOT"

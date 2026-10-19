@@ -351,7 +351,7 @@ pub fn render(
                                     )
                                     .when(
                                         cfg!(any(
-                                            all(target_os = "macos", target_arch = "aarch64"),
+                                            target_os = "macos",
                                             all(target_os = "windows", target_arch = "x86_64")
                                         )),
                                         |this| {

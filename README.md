@@ -48,7 +48,9 @@ cargo run --release
 ```
 
 脚本会构建 release 版本，生成并临时签名 `Jump1.app`，然后在 `dist/` 输出适合当前
-CPU 架构的 DMG。打开 DMG，将 Jump1 拖入 Applications 即可安装。发布给其他用户时可通过
+CPU 架构的 DMG。跨架构构建前先用 `rustup target add <target>` 安装目标，再通过
+`CARGO_BUILD_TARGET=x86_64-apple-darwin` 或 `CARGO_BUILD_TARGET=aarch64-apple-darwin` 指定
+Intel 或 Apple Silicon 架构。打开 DMG，将 Jump1 拖入 Applications 即可安装。发布给其他用户时可通过
 `CODESIGN_IDENTITY="Developer ID Application: ..."` 指定正式签名证书。默认临时签名使用
 稳定的 bundle designated requirement，覆盖本地构建时不会因二进制哈希变化反复丢失
 辅助功能授权。
@@ -78,9 +80,9 @@ Windows 的“登录时启动”开关会为当前用户注册启动项。登录
 
 ## 版本与更新
 
-应用版本号以 `Cargo.toml` 为准，版本变更记录维护在 [CHANGELOG.md](CHANGELOG.md)。每个版本的更新说明都应包含简体中文和英文；应用内会根据当前界面语言显示对应内容。发布新版本时，先更新这两处并提交，再推送与版本号一致的 `vMAJOR.MINOR.PATCH` 标签（例如 `v0.2.0`）。GitHub Actions 会校验两种语言的说明，在 Apple Silicon macOS runner 上构建 ARM64 DMG、在 Windows runner 上构建 x86_64 安装程序和便携 ZIP，并将三个安装包和双语变更记录发布到 [GitHub Releases](https://github.com/JCLee777/jump1/releases)。
+应用版本号以 `Cargo.toml` 为准，版本变更记录维护在 [CHANGELOG.md](CHANGELOG.md)。每个版本的更新说明都应包含简体中文和英文；应用内会根据当前界面语言显示对应内容。发布新版本时，先更新这两处并提交，再推送与版本号一致的 `vMAJOR.MINOR.PATCH` 标签（例如 `v0.2.0`）。GitHub Actions 会校验两种语言的说明，在 Apple Silicon 和 Intel macOS runner 上分别构建 ARM64 与 x86_64 DMG、在 Windows runner 上构建 x86_64 安装程序和便携 ZIP，并将四个安装包和双语变更记录发布到 [GitHub Releases](https://github.com/JCLee777/jump1/releases)。
 
-Apple Silicon Mac 和 x86_64 Windows 用户可在“设置 → 通用 → 软件更新”检查新版本、查看最新更新说明，并在应用内下载对应安装包。下载完成后点击“安装并重启”，Jump1 会在用户确认后替换当前应用并重新打开；如果安装目录不可写，可从 GitHub Releases 手动更新。其他平台不会显示此更新入口。
+Apple Silicon Mac、Intel Mac 和 x86_64 Windows 用户可在“设置 → 通用 → 软件更新”检查新版本、查看最新更新说明，并在应用内下载对应架构的安装包。下载完成后点击“安装并重启”，Jump1 会在用户确认后替换当前应用并重新打开；如果安装目录不可写，可从 GitHub Releases 手动更新。其他平台不会显示此更新入口。
 
 ## 结构
 

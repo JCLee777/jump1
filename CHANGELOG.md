@@ -9,6 +9,16 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ### English
 
+## [0.1.22] - 2026-10-19
+
+### 简体中文
+
+- 新增 macOS Intel（x86_64）安装包，并支持应用内检查和安装匹配当前架构的更新。
+
+### English
+
+- Added an Intel (x86_64) macOS package and in-app updates matching the current architecture.
+
 ## [0.1.21] - 2026-10-19
 
 ### 简体中文

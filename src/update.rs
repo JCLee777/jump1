@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 
 #[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
+    target_os = "macos",
     all(target_os = "windows", target_arch = "x86_64")
 ))]
 use std::{
@@ -13,7 +13,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(target_os = "macos")]
 use std::{
     os::unix::fs::OpenOptionsExt,
     process::{Command, Stdio},
@@ -178,7 +178,7 @@ fn version_parts(version: &str) -> Option<[u64; 3]> {
 }
 
 #[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
+    target_os = "macos",
     all(target_os = "windows", target_arch = "x86_64")
 ))]
 pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, String> {
@@ -247,7 +247,7 @@ pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, Str
     ));
     let mut open_options = OpenOptions::new();
     open_options.write(true).create_new(true);
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(target_os = "macos")]
     open_options.mode(0o600);
     let mut file = open_options
         .open(&temporary_path)
@@ -297,11 +297,11 @@ pub fn download_update(version: &str, download_url: &str) -> Result<PathBuf, Str
 }
 
 #[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
+    target_os = "macos",
     all(target_os = "windows", target_arch = "x86_64")
 ))]
 fn update_directory() -> Result<PathBuf, String> {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(target_os = "macos")]
     {
         let home = std::env::var_os("HOME").ok_or_else(|| "无法读取用户目录".to_owned())?;
         Ok(PathBuf::from(home)
@@ -318,7 +318,7 @@ fn update_directory() -> Result<PathBuf, String> {
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(target_os = "macos")]
 pub fn install_update_and_restart(package_path: &Path, version: &str) -> Result<(), String> {
     let version_number = version.strip_prefix('v').unwrap_or(version);
     if !is_stable_release_version(version_number) {
@@ -382,7 +382,7 @@ pub fn install_update_and_restart(package_path: &Path, version: &str) -> Result<
     Ok(())
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(target_os = "macos")]
 fn ensure_directory_writable(directory: &Path) -> Result<(), String> {
     let probe = directory.join(format!(".jump1-update-probe-{}", std::process::id()));
     let file = OpenOptions::new()
@@ -524,7 +524,7 @@ finally {
 }
 "#;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(target_os = "macos")]
 const UPDATE_INSTALLER_SCRIPT: &str = r#"#!/bin/sh
 set -eu
 
@@ -591,7 +591,7 @@ backup_root=""
 "#;
 
 #[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
+    target_os = "macos",
     all(target_os = "windows", target_arch = "x86_64")
 ))]
 pub fn fetch_latest_release() -> Result<Vec<ReleaseEntry>, String> {
@@ -644,7 +644,7 @@ pub fn fetch_latest_release() -> Result<Vec<ReleaseEntry>, String> {
 }
 
 #[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
+    target_os = "macos",
     all(target_os = "windows", target_arch = "x86_64")
 ))]
 struct GitHubReleaseClient {
@@ -652,7 +652,7 @@ struct GitHubReleaseClient {
 }
 
 #[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
+    target_os = "macos",
     all(target_os = "windows", target_arch = "x86_64")
 ))]
 impl GitHubReleaseClient {
@@ -672,7 +672,7 @@ impl GitHubReleaseClient {
         match self.api_releases() {
             Ok(releases) if !releases.is_empty() => Ok(releases),
             Ok(releases) => {
-                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                #[cfg(target_os = "macos")]
                 {
                     self.atom_releases().or(Ok(releases))
                 }
@@ -682,7 +682,7 @@ impl GitHubReleaseClient {
                 }
             }
             Err(api_error) => {
-                #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                #[cfg(target_os = "macos")]
                 {
                     self.atom_releases().map_err(|feed_error| {
                         format!("{api_error}；GitHub Releases feed 回退失败：{feed_error}")
@@ -716,7 +716,7 @@ impl GitHubReleaseClient {
             .map_err(|error| format!("无法解析 GitHub 版本信息：{error}"))
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(target_os = "macos")]
     fn atom_releases(&self) -> Result<Vec<serde_json::Value>, String> {
         const RELEASES_FEED: &str = "https://github.com/JCLee777/jump1/releases.atom";
         const RELEASE_PAGE_PREFIX: &str = "https://github.com/JCLee777/jump1/releases/tag/";
@@ -791,7 +791,7 @@ impl GitHubReleaseClient {
 }
 
 #[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
+    target_os = "macos",
     all(target_os = "windows", target_arch = "x86_64")
 ))]
 fn is_stable_release_version(version: &str) -> bool {
@@ -803,13 +803,13 @@ fn is_stable_release_version(version: &str) -> bool {
 }
 
 #[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
+    target_os = "macos",
     all(target_os = "windows", target_arch = "x86_64")
 ))]
 fn platform_asset_name(version: &str) -> String {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(target_os = "macos")]
     {
-        format!("Jump1-{version}-aarch64.dmg")
+        format!("Jump1-{version}-{}.dmg", std::env::consts::ARCH)
     }
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
@@ -817,7 +817,7 @@ fn platform_asset_name(version: &str) -> String {
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(target_os = "macos")]
 fn github_html_to_markdown(html: &str) -> String {
     let mut markdown = String::new();
     let mut chars = html.chars().peekable();
@@ -872,7 +872,7 @@ fn github_html_to_markdown(html: &str) -> String {
         .join("\n")
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(target_os = "macos")]
 fn decode_html_entities(text: &str) -> String {
     let mut decoded = String::with_capacity(text.len());
     let mut remaining = text;

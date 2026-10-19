@@ -66,15 +66,26 @@ jobs:
           retention-days: 1
 
   build-macos:
-    name: Build Apple Silicon macOS package
+    name: Build macOS packages
     needs: validate
-    runs-on: macos-15
+    strategy:
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-apple-darwin
+            runner: macos-15
+            runner_arch: arm64
+          - arch: x86_64
+            target: x86_64-apple-darwin
+            runner: macos-15-intel
+            runner_arch: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Verify Apple Silicon runner
-        run: test "$(uname -m)" = arm64
+      - name: Verify macOS runner architecture
+        run: test "$(uname -m)" = "${{ matrix.runner_arch }}"
 
       - name: Install Rust toolchain
         shell: bash
@@ -85,16 +96,21 @@ jobs:
           fi
           export PATH="$HOME/.cargo/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup toolchain install stable --profile minimal --target aarch64-apple-darwin
+          toolchain="$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml | head -n 1)"
+          if [[ -z "$toolchain" ]]; then
+            echo "Could not read the Rust toolchain from rust-toolchain.toml." >&2
+            exit 1
+          fi
+          rustup toolchain install "$toolchain" --profile minimal --target "${{ matrix.target }}"
 
-      - name: Build ARM64 DMG
-        run: CARGO_BUILD_TARGET=aarch64-apple-darwin ./scripts/package-macos.sh
+      - name: Build macOS DMG
+        run: CARGO_BUILD_TARGET=${{ matrix.target }} ./scripts/package-macos.sh
 
       - name: Upload macOS package
         uses: actions/upload-artifact@v4
         with:
-          name: macos-package
-          path: dist/Jump1-*-aarch64.dmg
+          name: macos-${{ matrix.arch }}-package
+          path: dist/Jump1-*-${{ matrix.arch }}.dmg
           if-no-files-found: error
           retention-days: 1
 
@@ -160,7 +176,13 @@ jobs:
       - name: Download macOS package
         uses: actions/download-artifact@v4
         with:
-          name: macos-package
+          name: macos-aarch64-package
+          path: dist
+
+      - name: Download Intel macOS package
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-x86_64-package
           path: dist
 
       - name: Download Windows package

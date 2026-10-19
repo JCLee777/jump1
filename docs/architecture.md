@@ -61,7 +61,7 @@ main.rs → lib.rs → app.rs
 - `platform.rs`：系统发现、应用名称本地化别名、打开操作、输入模拟和登录项管理
 - `plugin/`：插件身份、状态、持久化和各自视图
 - `theme.rs`：语义设计令牌与应用级尺寸
-- `update.rs`：Apple Silicon macOS 的最新 GitHub Release 查询与更新判断
+- `update.rs`：Apple Silicon 与 Intel macOS、Windows x86_64 的最新 GitHub Release 查询与更新判断
 - `network.rs`：共享的 HTTPS Chat Completions 客户端，禁用重定向并解析兼容响应
 
 `plugin/launcher/search.rs` 不依赖 GPUI，也不执行系统命令。平台差异限制在
@@ -90,11 +90,11 @@ main.rs → lib.rs → app.rs
 - macOS 使用 AppKit 原生窗口调整尺寸，系统窗口按钮保持隐藏；其他平台使用 GPUI 客户端边框。
 - 产品文案由 `i18n.rs` 按系统语言生成，当前支持简体中文和英文。
 - 业务数据使用 `ResultKind`、`ResultTitle` 等语义类型，不保存翻译后的文本。
-- Apple Silicon macOS 的通用设置从 GitHub Releases 查询最新版本并展示本地语言的更新说明；
-  更新器在应用内下载对应 ARM64 DMG，用户确认“安装并重启”后由独立 helper 校验并替换当前 `.app`，再重新打开应用；
+- macOS 的通用设置从 GitHub Releases 查询最新版本并展示本地语言的更新说明；
+  更新器按当前 CPU 架构下载 ARM64 或 x86_64 DMG，用户确认“安装并重启”后由独立 helper 校验并替换当前 `.app`，再重新打开应用；
   当前安装目录不可写或安装失败时保留 GitHub Releases 手动更新入口。
 - Release 由 `vMAJOR.MINOR.PATCH` 标签触发；工作流验证 `Cargo.toml` 版本和
-  `CHANGELOG.md` 条目后，仅构建并发布 Apple Silicon macOS DMG。
+  `CHANGELOG.md` 条目后，分别构建并发布 Apple Silicon 与 Intel macOS DMG。
 
 新增页面不得写死颜色和产品文案。只有无法由语义比例表达的组件尺寸可以加入
 `theme.rs`，且应按用途命名。

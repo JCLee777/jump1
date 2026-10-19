@@ -474,7 +474,7 @@ impl Jump1Shell {
         .detach();
 
         #[cfg(any(
-            all(target_os = "macos", target_arch = "aarch64"),
+            target_os = "macos",
             all(target_os = "windows", target_arch = "x86_64")
         ))]
         {
@@ -654,19 +654,19 @@ impl Jump1Shell {
             }
             PluginEvent::CheckForUpdates => {
                 #[cfg(any(
-                    all(target_os = "macos", target_arch = "aarch64"),
+                    target_os = "macos",
                     all(target_os = "windows", target_arch = "x86_64")
                 ))]
                 self.check_for_updates(cx);
             }
             PluginEvent::DownloadUpdate { version, url } => {
                 #[cfg(any(
-                    all(target_os = "macos", target_arch = "aarch64"),
+                    target_os = "macos",
                     all(target_os = "windows", target_arch = "x86_64")
                 ))]
                 self.download_update(version, url, cx);
                 #[cfg(not(any(
-                    all(target_os = "macos", target_arch = "aarch64"),
+                    target_os = "macos",
                     all(target_os = "windows", target_arch = "x86_64")
                 )))]
                 let _ = (version, url);
@@ -676,12 +676,12 @@ impl Jump1Shell {
                 package_path,
             } => {
                 #[cfg(any(
-                    all(target_os = "macos", target_arch = "aarch64"),
+                    target_os = "macos",
                     all(target_os = "windows", target_arch = "x86_64")
                 ))]
                 self.install_update(version, package_path, cx);
                 #[cfg(not(any(
-                    all(target_os = "macos", target_arch = "aarch64"),
+                    target_os = "macos",
                     all(target_os = "windows", target_arch = "x86_64")
                 )))]
                 let _ = (version, package_path);
@@ -693,7 +693,7 @@ impl Jump1Shell {
     }
 
     #[cfg(any(
-        all(target_os = "macos", target_arch = "aarch64"),
+        target_os = "macos",
         all(target_os = "windows", target_arch = "x86_64")
     ))]
     fn check_for_updates(&mut self, cx: &mut Context<Self>) {
@@ -738,7 +738,7 @@ impl Jump1Shell {
     }
 
     #[cfg(any(
-        all(target_os = "macos", target_arch = "aarch64"),
+        target_os = "macos",
         all(target_os = "windows", target_arch = "x86_64")
     ))]
     fn download_update(&mut self, version: String, url: String, cx: &mut Context<Self>) {
@@ -781,7 +781,7 @@ impl Jump1Shell {
     }
 
     #[cfg(any(
-        all(target_os = "macos", target_arch = "aarch64"),
+        target_os = "macos",
         all(target_os = "windows", target_arch = "x86_64")
     ))]
     fn install_update(
