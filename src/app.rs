@@ -1320,6 +1320,7 @@ impl Render for Jump1Shell {
                             .child(
                                 div()
                                     .flex_1()
+                                    .min_w(px(0.))
                                     .text_size(typography.sm.size)
                                     .text_color(colors.foreground)
                                     .child(line),
