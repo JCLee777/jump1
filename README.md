@@ -40,6 +40,14 @@ cargo run
 cargo run --release
 ```
 
+开发时查看帧耗时：
+
+```bash
+cargo run --features dev-profiler
+```
+
+按 `Control + Shift + P` 在帧耗时、详细统计和关闭浮层之间切换。浮层显示 GPUI 帧绘制耗时及统计分布，不是持续刷新的 FPS 数字；功能只在开发构建中启用。
+
 ## macOS 安装包
 
 在 macOS 上执行：

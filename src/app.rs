@@ -1499,6 +1499,20 @@ impl Render for Jump1Shell {
                 }))
                 .on_double_click(|_, window, _| window.zoom_window()),
         );
+        #[cfg(all(feature = "dev-profiler", debug_assertions))]
+        let content = content.capture_key_down(|event, window, _| {
+            let modifiers = event.keystroke.modifiers;
+            if !event.is_held
+                && event.keystroke.key.eq_ignore_ascii_case("p")
+                && modifiers.control
+                && modifiers.shift
+                && !modifiers.alt
+                && !modifiers.platform
+                && !modifiers.function
+            {
+                window.cycle_debug_frame_overlay_mode();
+            }
+        });
         #[cfg(target_os = "macos")]
         {
             content

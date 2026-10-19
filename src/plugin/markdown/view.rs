@@ -3,8 +3,8 @@ use std::time::Duration;
 use gpui_kit::{
     App, AppContext as _, Context, Entity, Focusable as _, HighlightStyle, Image, ImageFormat,
     ImageSource, InteractiveElement as _, IntoElement, ParentElement, Render, Resource,
-    ScrollHandle, StatefulInteractiveElement as _, Styled, Subscription, Window,
-    base::text::{TextView, TextViewStyle},
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    base::text::{TextView, TextViewState, TextViewStyle},
     component::input::{Editor, EditorState, InputEvent},
     div, px,
 };
@@ -31,9 +31,10 @@ enum MarkdownViewMode {
 
 pub struct MarkdownPage {
     editor: Entity<EditorState>,
-    preview_scroll: ScrollHandle,
+    preview: Entity<TextViewState>,
     scroll_sync: ScrollSync,
     draft: String,
+    summary: String,
     storage: Option<PluginStorage>,
     locale: Locale,
     mode: MarkdownViewMode,
@@ -65,33 +66,40 @@ impl MarkdownPage {
                 .soft_wrap(true)
                 .default_value(draft.clone())
         });
-        let preview_scroll = ScrollHandle::new();
-        let editor_scroll_subscription = cx.observe(&editor, |this, editor, cx| {
-            let y = clamp_scroll_y(&this.preview_scroll, editor.read(cx).scroll_offset().y);
+        let preview = cx.new(|cx| TextViewState::markdown(&draft, cx));
+        let preview_for_editor = preview.clone();
+        let editor_scroll_subscription = cx.observe(&editor, move |this, editor, cx| {
+            let y = clamp_preview_scroll_y(
+                &preview_for_editor.read(cx),
+                editor.read(cx).scroll_offset().y,
+            );
             if let Some(y) =
                 this.scroll_sync
                     .observe(Side::Left, y, this.mode == MarkdownViewMode::Split)
             {
-                let mut offset = this.preview_scroll.offset();
-                if offset.y != y {
-                    offset.y = y;
-                    this.preview_scroll.set_offset(offset);
-                    cx.notify();
-                }
+                preview_for_editor.update(cx, |preview, cx| {
+                    set_preview_scroll_y(preview, y, cx);
+                });
             }
         });
-        let preview_scroll_subscription = cx.observe_self(|this, cx| {
-            let y = clamp_scroll_y(&this.preview_scroll, this.preview_scroll.offset().y);
+        let editor_for_preview = editor.clone();
+        let preview_scroll_subscription = cx.observe(&preview, move |this, preview, cx| {
+            let y = preview
+                .read(cx)
+                .list_state()
+                .scroll_px_offset_for_scrollbar()
+                .y;
             if let Some(y) =
                 this.scroll_sync
                     .observe(Side::Right, y, this.mode == MarkdownViewMode::Split)
             {
-                let mut offset = this.editor.read(cx).scroll_offset();
-                if offset.y != y {
-                    offset.y = y;
-                    this.editor
-                        .update(cx, |editor, cx| editor.set_scroll_offset(offset, cx));
-                }
+                editor_for_preview.update(cx, |editor, cx| {
+                    let mut offset = editor.scroll_offset();
+                    if offset.y != y {
+                        offset.y = y;
+                        editor.set_scroll_offset(offset, cx);
+                    }
+                });
             }
         });
         let editor_subscription = cx.subscribe(&editor, |this, editor, event: &InputEvent, cx| {
@@ -99,6 +107,12 @@ impl MarkdownPage {
                 return;
             }
             this.draft = editor.read(cx).value().to_string();
+            this.summary = markdown_summary(&this.draft, &I18n::new(this.locale));
+            if this.mode != MarkdownViewMode::Edit {
+                let draft = this.draft.clone();
+                this.preview
+                    .update(cx, |preview, cx| preview.set_text(&draft, cx));
+            }
             this.notice = None;
             this.revision = this.revision.saturating_add(1);
             let revision = this.revision;
@@ -126,8 +140,9 @@ impl MarkdownPage {
 
         Self {
             editor,
-            preview_scroll,
+            preview,
             scroll_sync: ScrollSync::default(),
+            summary: markdown_summary(&draft, &I18n::new(locale)),
             draft,
             storage,
             locale,
@@ -149,6 +164,7 @@ impl MarkdownPage {
 
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
+        self.summary = markdown_summary(&self.draft, &I18n::new(locale));
         cx.notify();
     }
 
@@ -157,9 +173,14 @@ impl MarkdownPage {
             return;
         }
         self.draft = text.clone();
+        self.summary = markdown_summary(&self.draft, &I18n::new(self.locale));
         self.notice = None;
         self.revision = self.revision.saturating_add(1);
         self.persist_draft();
+        if self.mode != MarkdownViewMode::Edit {
+            self.preview
+                .update(cx, |preview, cx| preview.set_text(&text, cx));
+        }
         self.editor
             .update(cx, |editor, cx| editor.set_value(text, window, cx));
         window.focus(&self.editor.focus_handle(cx), cx);
@@ -168,14 +189,17 @@ impl MarkdownPage {
 
     fn set_mode(&mut self, mode: MarkdownViewMode, window: &mut Window, cx: &mut Context<Self>) {
         self.mode = mode;
+        if mode != MarkdownViewMode::Edit {
+            let draft = self.draft.clone();
+            self.preview
+                .update(cx, |preview, cx| preview.set_text(&draft, cx));
+        }
         if mode == MarkdownViewMode::Split {
             let y = self.editor.read(cx).scroll_offset().y;
-            let mut offset = self.preview_scroll.offset();
-            if offset.y != y {
-                self.scroll_sync.follow(Side::Right);
-                offset.y = y;
-                self.preview_scroll.set_offset(offset);
-            }
+            self.scroll_sync.follow(Side::Right);
+            let y = clamp_preview_scroll_y(&self.preview.read(cx), y);
+            self.preview
+                .update(cx, |preview, cx| set_preview_scroll_y(preview, y, cx));
         }
         if mode != MarkdownViewMode::Preview {
             window.focus(&self.editor.focus_handle(cx), cx);
@@ -237,11 +261,10 @@ impl Render for MarkdownPage {
         }
         if self.mode != MarkdownViewMode::Edit {
             content = content.child(preview_panel(
-                self.draft.clone(),
+                self.preview.clone(),
                 &i18n,
                 &theme,
                 self.external_open_guard.clone(),
-                self.preview_scroll.clone(),
             ));
         }
 
@@ -373,7 +396,7 @@ impl Render for MarkdownPage {
             .child(markdown_status(
                 self.notice
                     .map(|message| i18n.text(message).to_owned())
-                    .unwrap_or_else(|| markdown_summary(&self.draft, &i18n)),
+                    .unwrap_or_else(|| self.summary.clone()),
                 i18n.text(Message::MarkdownKeyboardHint),
                 &theme,
             ))
@@ -415,16 +438,26 @@ fn editor_panel(editor: &Entity<EditorState>, i18n: &I18n, theme: &AppTheme) -> 
         )
 }
 
-fn clamp_scroll_y(scroll: &ScrollHandle, y: gpui_kit::Pixels) -> gpui_kit::Pixels {
-    y.clamp(-scroll.max_offset().y, px(0.))
+fn clamp_preview_scroll_y(preview: &TextViewState, y: gpui_kit::Pixels) -> gpui_kit::Pixels {
+    y.clamp(-preview.list_state().max_offset_for_scrollbar().y, px(0.))
+}
+
+fn set_preview_scroll_y(
+    preview: &mut TextViewState,
+    y: gpui_kit::Pixels,
+    cx: &mut Context<TextViewState>,
+) {
+    let list = preview.list_state();
+    let current_y = list.scroll_px_offset_for_scrollbar().y;
+    list.scroll_by(current_y - y);
+    cx.notify();
 }
 
 fn preview_panel(
-    source: String,
+    preview: Entity<TextViewState>,
     i18n: &I18n,
     theme: &AppTheme,
     external_open_guard: ExternalOpenGuard,
-    scroll: ScrollHandle,
 ) -> impl IntoElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
@@ -465,27 +498,25 @@ fn preview_panel(
                 .border_1()
                 .border_color(colors.input)
                 .bg(theme.materials.surface)
-                .overflow_y_scroll()
-                .track_scroll(&scroll)
+                .p(spacing.md)
+                .overflow_hidden()
                 .child(
-                    div().w_full().p(spacing.md).child(
-                        TextView::markdown("markdown-preview-content", source)
-                            .image_source(markdown_image_source)
-                            .style(text_style)
-                            .scrollable(false)
-                            .on_link_click(move |url, _, _, cx| {
-                                if let Some(path) = markdown_local_path(url.as_ref()) {
-                                    external_open_guard.mark_opening();
-                                    if let Err(error) = crate::platform::open_path(&path) {
-                                        eprintln!("failed to open Markdown file link: {error}");
-                                    }
-                                } else if let Some(url) = markdown_link_url(url.as_ref()) {
-                                    external_open_guard.mark_opening();
-                                    cx.open_url(&url);
+                    TextView::new(&preview)
+                        .image_source(markdown_image_source)
+                        .style(text_style)
+                        .scrollable(true)
+                        .on_link_click(move |url, _, _, cx| {
+                            if let Some(path) = markdown_local_path(url.as_ref()) {
+                                external_open_guard.mark_opening();
+                                if let Err(error) = crate::platform::open_path(&path) {
+                                    eprintln!("failed to open Markdown file link: {error}");
                                 }
-                            })
-                            .w_full(),
-                    ),
+                            } else if let Some(url) = markdown_link_url(url.as_ref()) {
+                                external_open_guard.mark_opening();
+                                cx.open_url(&url);
+                            }
+                        })
+                        .size_full(),
                 ),
         )
 }
