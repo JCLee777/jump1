@@ -63,17 +63,20 @@ impl I18n {
             (Locale::ZhCn, Message::ClipboardEmpty) => "复制文本、图片或文件后会显示在这里",
             (Locale::ZhCn, Message::ClipboardCopied) => "已复制到剪切板",
             (Locale::ZhCn, Message::ClipboardKeyboardHint) => {
-                "↑ ↓ 选择   ·   → 预览   ·   ↵ 粘贴   ·   Tab 切换排序   ·   Esc 返回"
+                "↑ ↓ 选择   ·   → 预览   ·   ↵ 粘贴   ·   Ctrl+D 固定   ·   Tab 切换列表   ·   Esc 返回"
             }
             (Locale::ZhCn, Message::ClipboardPreviewKeyboardHint) => {
-                "↑ ↓ 切换   ·   ← / Esc 关闭预览   ·   ↵ 粘贴"
+                "↑ ↓ 切换   ·   ← / Esc 关闭预览   ·   ↵ 粘贴   ·   Ctrl+D 固定"
             }
             (Locale::ZhCn, Message::ClipboardPreviewTruncated) => "仅显示前 16000 个字符",
             (Locale::ZhCn, Message::ClipboardPreviewMoreFiles) => "其余文件未显示",
             (Locale::ZhCn, Message::ClipboardSortRecent) => "按时间",
             (Locale::ZhCn, Message::ClipboardSortFrequent) => "按使用次数",
+            (Locale::ZhCn, Message::ClipboardFilterAll) => "全部",
+            (Locale::ZhCn, Message::ClipboardFilterFavorites) => "收藏",
+            (Locale::ZhCn, Message::ClipboardFavoritesEmpty) => "没有匹配的收藏内容",
             (Locale::ZhCn, Message::ClipboardClear) => "清空历史",
-            (Locale::ZhCn, Message::ClipboardCleared) => "剪切板历史已清空",
+            (Locale::ZhCn, Message::ClipboardCleared) => "历史已清空，收藏已保留",
             (Locale::ZhCn, Message::ClipboardHistoryUnlimited) => "无限",
             (Locale::ZhCn, Message::JsonName) => "JSON 编辑器",
             (Locale::ZhCn, Message::JsonDescription) => "校验、格式化、压缩和对比 JSON 数据",
@@ -204,7 +207,9 @@ impl I18n {
             (Locale::ZhCn, Message::UpdateReadyTitle) => "版本 {version} 已就绪",
             (Locale::ZhCn, Message::UpdateLater) => "稍后",
             (Locale::ZhCn, Message::ClipboardHistoryLimit) => "历史记录数量",
-            (Locale::ZhCn, Message::ClipboardHistoryLimitDescription) => "保存的剪切板条目数量",
+            (Locale::ZhCn, Message::ClipboardHistoryLimitDescription) => {
+                "普通历史条目数量，收藏内容不计入上限"
+            }
             (Locale::ZhCn, Message::RecentApplications) => "最近使用",
             (Locale::ZhCn, Message::LauncherRecentLimit) => "最近使用数量",
             (Locale::ZhCn, Message::LauncherRecentLimitDescription) => "主页显示的最近应用数量",
@@ -245,10 +250,10 @@ impl I18n {
             (Locale::EnUs, Message::ClipboardEmpty) => "Copied text, images, and files appear here",
             (Locale::EnUs, Message::ClipboardCopied) => "Copied to clipboard",
             (Locale::EnUs, Message::ClipboardKeyboardHint) => {
-                "↑ ↓ Select   ·   → Preview   ·   ↵ Paste   ·   Tab Sort   ·   Esc Back"
+                "↑ ↓ Select   ·   → Preview   ·   ↵ Paste   ·   Ctrl+D Pin   ·   Tab Switch List   ·   Esc Back"
             }
             (Locale::EnUs, Message::ClipboardPreviewKeyboardHint) => {
-                "↑ ↓ Switch   ·   ← / Esc Close preview   ·   ↵ Paste"
+                "↑ ↓ Switch   ·   ← / Esc Close preview   ·   ↵ Paste   ·   Ctrl+D Pin"
             }
             (Locale::EnUs, Message::ClipboardPreviewTruncated) => {
                 "Showing the first 16000 characters"
@@ -256,8 +261,11 @@ impl I18n {
             (Locale::EnUs, Message::ClipboardPreviewMoreFiles) => "More files not shown",
             (Locale::EnUs, Message::ClipboardSortRecent) => "Recent",
             (Locale::EnUs, Message::ClipboardSortFrequent) => "Most used",
+            (Locale::EnUs, Message::ClipboardFilterAll) => "All",
+            (Locale::EnUs, Message::ClipboardFilterFavorites) => "Favorites",
+            (Locale::EnUs, Message::ClipboardFavoritesEmpty) => "No matching favorites",
             (Locale::EnUs, Message::ClipboardClear) => "Clear history",
-            (Locale::EnUs, Message::ClipboardCleared) => "Clipboard history cleared",
+            (Locale::EnUs, Message::ClipboardCleared) => "History cleared; favorites kept",
             (Locale::EnUs, Message::ClipboardHistoryUnlimited) => "Unlimited",
             (Locale::EnUs, Message::JsonName) => "JSON Editor",
             (Locale::EnUs, Message::JsonDescription) => {
@@ -399,7 +407,7 @@ impl I18n {
             (Locale::EnUs, Message::UpdateLater) => "Later",
             (Locale::EnUs, Message::ClipboardHistoryLimit) => "History limit",
             (Locale::EnUs, Message::ClipboardHistoryLimitDescription) => {
-                "Number of clipboard entries to keep"
+                "History item limit; favorites are kept separately"
             }
             (Locale::EnUs, Message::RecentApplications) => "Recently Used",
             (Locale::EnUs, Message::LauncherRecentLimit) => "Recent items",
@@ -617,6 +625,9 @@ pub enum Message {
     ClipboardPreviewMoreFiles,
     ClipboardSortRecent,
     ClipboardSortFrequent,
+    ClipboardFilterAll,
+    ClipboardFilterFavorites,
+    ClipboardFavoritesEmpty,
     ClipboardClear,
     ClipboardCleared,
     ClipboardHistoryUnlimited,

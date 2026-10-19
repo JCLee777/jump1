@@ -107,6 +107,8 @@ pub enum PluginEvent {
     Back,
     PasteClipboard(usize),
     ClipboardSort(clipboard::ClipboardSortMode),
+    ClipboardFilter(clipboard::ClipboardFilterMode),
+    ToggleClipboardFavorite(usize),
     ClearClipboard,
     WriteClipboard(String),
     ImportClipboard(PluginId),
@@ -531,8 +533,12 @@ impl PluginManager {
         self.clipboard.set_sort_mode(mode);
     }
 
-    pub fn toggle_clipboard_sort(&mut self) {
-        self.clipboard.toggle_sort_mode();
+    pub fn set_clipboard_filter(&mut self, mode: clipboard::ClipboardFilterMode) {
+        self.clipboard.set_filter_mode(mode);
+    }
+
+    pub fn toggle_clipboard_favorite(&mut self, index: usize) -> bool {
+        self.clipboard.toggle_favorite(index)
     }
 
     pub fn clear_clipboard_history(&mut self, current_clipboard: Option<ClipboardItem>) {

@@ -5,6 +5,16 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ## [Unreleased]
 
+### 简体中文
+
+- 剪切板历史支持收藏和收藏筛选；清空历史时保留收藏内容。
+- 在剪切板页面按 Ctrl+D，可将选中内容打开为主题色背景的置顶便签。
+
+### English
+
+- Added clipboard favorites and a favorites filter; clearing history keeps favorites.
+- Press Ctrl+D in the clipboard page to open the selected item in an always-on-top note with an accent-tinted background.
+
 ## [0.1.19] - 2026-10-16
 
 ### 简体中文

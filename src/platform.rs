@@ -277,6 +277,37 @@ pub fn hide_window_controls(window: &gpui_kit::Window) {
     }
 }
 
+pub(crate) fn set_window_always_on_top(window: &gpui_kit::Window) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSPopUpMenuWindowLevel, NSView, NSWindowCollectionBehavior};
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        let Ok(handle) = HasWindowHandle::window_handle(window) else {
+            return;
+        };
+        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+            return;
+        };
+        // The AppKit handle owns this view for the lifetime of `window`.
+        let view = unsafe { &*handle.ns_view.as_ptr().cast::<NSView>() };
+        let Some(native_window) = view.window() else {
+            return;
+        };
+        native_window.setLevel(NSPopUpMenuWindowLevel);
+        native_window.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::FullScreenAuxiliary,
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    windows_platform::set_window_always_on_top(window);
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = window;
+}
+
 #[cfg(target_os = "macos")]
 pub fn center_window_on_pointer(window: &gpui_kit::Window) {
     use objc2::MainThreadMarker;
@@ -666,10 +697,28 @@ pub(crate) fn activate_application(target: ApplicationTarget) -> Result<(), Stri
 }
 
 pub(crate) fn hide_panel_window(window: &gpui_kit::Window) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSView;
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        let Ok(handle) = HasWindowHandle::window_handle(window) else {
+            return;
+        };
+        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+            return;
+        };
+        // Hide only the launcher panel so pinned clipboard windows stay visible.
+        let view = unsafe { &*handle.ns_view.as_ptr().cast::<NSView>() };
+        if let Some(native_window) = view.window() {
+            native_window.orderOut(None);
+        }
+    }
+
     #[cfg(target_os = "windows")]
     windows_platform::hide_panel_window(window);
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = window;
 }
 
@@ -854,11 +903,11 @@ mod windows_platform {
             },
             WindowsAndMessaging::{
                 AppendMenuW, CreatePopupMenu, DestroyMenu, GetClassLongPtrW, GetCursorPos,
-                GetSystemMetrics, ICON_SMALL2, IDI_APPLICATION, IMAGE_ICON, LR_SHARED, LoadIconW,
-                LoadImageW, MF_STRING, PostMessageW, RegisterWindowMessageW, SM_CXSMICON,
-                SM_CYSMICON, SendMessageW, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP,
-                WM_CLOSE, WM_CONTEXTMENU, WM_GETICON, WM_LBUTTONUP, WM_NCDESTROY, WM_NULL,
-                WM_RBUTTONUP,
+                GetSystemMetrics, HWND_TOPMOST, ICON_SMALL2, IDI_APPLICATION, IMAGE_ICON,
+                LR_SHARED, LoadIconW, LoadImageW, MF_STRING, PostMessageW, RegisterWindowMessageW,
+                SM_CXSMICON, SM_CYSMICON, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SendMessageW,
+                SetWindowPos, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CLOSE,
+                WM_CONTEXTMENU, WM_GETICON, WM_LBUTTONUP, WM_NCDESTROY, WM_NULL, WM_RBUTTONUP,
             },
         },
     };
@@ -1182,6 +1231,22 @@ mod windows_platform {
     pub(super) fn show_panel_window(window: &gpui_kit::Window) {
         if let Some(hwnd) = window_hwnd(window) {
             unsafe { ShowWindow(hwnd, SW_RESTORE) };
+        }
+    }
+
+    pub(super) fn set_window_always_on_top(window: &gpui_kit::Window) {
+        if let Some(hwnd) = window_hwnd(window) {
+            unsafe {
+                SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+                );
+            }
         }
     }
 

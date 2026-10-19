@@ -15,7 +15,10 @@ use crate::{
     platform,
     plugin::{
         PluginCommand, PluginEvent, PluginId, PluginManager,
-        clipboard::ClipboardPreviewImageAsset,
+        clipboard::{
+            ClipboardFilterMode, ClipboardFormat, ClipboardPreviewImageAsset,
+            view::ClipboardPinnedView,
+        },
         host_view,
         protocol::{CommandAction, HostEffect},
         settings::SettingsChange,
@@ -178,6 +181,57 @@ impl Jump1Shell {
                         }
                         return true;
                     }
+                    if shell.plugins.active() == PluginId::Clipboard
+                        && event.keystroke.key.eq_ignore_ascii_case("d")
+                        && event.keystroke.modifiers.control
+                    {
+                        let Some(entry) = shell
+                            .plugins
+                            .clipboard()
+                            .current_entries()
+                            .get(shell.selected)
+                            .map(|entry| (*entry).clone())
+                        else {
+                            return true;
+                        };
+                        let i18n = shell.i18n.clone();
+                        let display = window.display(cx).or_else(|| cx.primary_display());
+                        let display_id = display.as_ref().map(|display| display.id());
+                        let window_size = if entry.format == ClipboardFormat::Image {
+                            display
+                                .as_ref()
+                                .map(|display| {
+                                    let bounds = display.visible_bounds();
+                                    size(bounds.size.width * 0.5, bounds.size.height * 0.5)
+                                })
+                                .unwrap_or_else(|| size(px(640.), px(480.)))
+                        } else {
+                            size(px(640.), px(480.))
+                        };
+                        let window_bounds = Bounds::centered(display_id, window_size, cx);
+                        let options = WindowOptions {
+                            window_bounds: Some(WindowBounds::Windowed(window_bounds)),
+                            display_id,
+                            titlebar: Some(TitlebarOptions {
+                                appears_transparent: true,
+                                ..Default::default()
+                            }),
+                            app_owns_titlebar_drag: true,
+                            is_resizable: true,
+                            is_minimizable: true,
+                            window_min_size: Some(size(px(360.), px(240.))),
+                            window_decorations: Some(WindowDecorations::Client),
+                            window_background: WindowBackgroundAppearance::Transparent,
+                            ..Default::default()
+                        };
+                        if let Err(error) = gpui_kit::open_window(options, cx, move |window, cx| {
+                            platform::set_window_always_on_top(window);
+                            cx.new(|_| ClipboardPinnedView::new(entry, i18n))
+                        }) {
+                            eprintln!("failed to open pinned clipboard window: {error}");
+                        }
+                        return true;
+                    }
                     if !input_focus.is_focused(window) {
                         return false;
                     }
@@ -223,14 +277,15 @@ impl Jump1Shell {
                     }
                     match event.keystroke.key.as_str() {
                         "tab" if shell.plugins.active() == PluginId::Clipboard => {
-                            shell.plugins.toggle_clipboard_sort();
-                            shell.selected = 0;
-                            shell.scroll_to_result(0);
-                            if shell.plugins.clipboard().preview_open() {
-                                shell.plugins.open_clipboard_preview(0);
-                            }
-                            shell.status = None;
-                            cx.notify();
+                            let next_filter = match shell.plugins.clipboard().filter_mode() {
+                                ClipboardFilterMode::All => ClipboardFilterMode::Favorites,
+                                ClipboardFilterMode::Favorites => ClipboardFilterMode::All,
+                            };
+                            shell.handle_plugin_event(
+                                PluginEvent::ClipboardFilter(next_filter),
+                                window,
+                                cx,
+                            );
                             true
                         }
                         "up" => {
@@ -530,6 +585,30 @@ impl Jump1Shell {
                 self.plugins.update_clipboard_preview(0);
                 self.status = None;
                 cx.notify();
+            }
+            PluginEvent::ClipboardFilter(mode) => {
+                self.plugins.set_clipboard_filter(mode);
+                self.selected = 0;
+                self.scroll_to_result(0);
+                if self.plugins.clipboard().preview_open() {
+                    self.plugins.open_clipboard_preview(0);
+                }
+                self.status = None;
+                cx.notify();
+            }
+            PluginEvent::ToggleClipboardFavorite(index) => {
+                if self.plugins.toggle_clipboard_favorite(index) {
+                    let preview_open = self.plugins.clipboard().preview_open();
+                    self.selected = index.min(self.current_count().saturating_sub(1));
+                    self.scroll_to_result(self.selected);
+                    if self.current_count() == 0 {
+                        self.plugins.close_clipboard_preview();
+                    } else if preview_open {
+                        self.plugins.update_clipboard_preview(self.selected);
+                    }
+                    self.status = None;
+                    cx.notify();
+                }
             }
             PluginEvent::ClearClipboard => {
                 self.plugins
@@ -1101,6 +1180,7 @@ impl Jump1Shell {
         if self.plugins.active() == PluginId::Clipboard {
             self.plugins.leave_clipboard_page(Some(window), cx);
         }
+        #[cfg(not(target_os = "macos"))]
         cx.hide();
         platform::hide_panel_window(window);
     }

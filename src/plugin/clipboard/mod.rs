@@ -18,7 +18,8 @@ use std::{
 
 use crate::platform::{self, NativeClipboard, NativeClipboardItem, NativeClipboardRepresentation};
 
-const HISTORY_MAGIC: &[u8; 5] = b"HDCB2";
+const HISTORY_MAGIC: &[u8; 5] = b"HDCB3";
+const LEGACY_HISTORY_MAGIC: &[u8; 5] = b"HDCB2";
 const MAX_ENTRY_BYTES: usize = 32 * 1024 * 1024;
 const MAX_DECODED_ENTRIES: usize = 100_000;
 const MAX_PREVIEW_IMAGE_EDGE: u32 = 1024;
@@ -116,6 +117,23 @@ impl Asset for ClipboardPreviewImageAsset {
     }
 }
 
+pub(crate) fn preview_image_source(entry: &ClipboardEntry) -> Option<ClipboardPreviewImageSource> {
+    match &entry.content {
+        ClipboardContent::Image { format, bytes, .. } => {
+            Some(ClipboardPreviewImageSource::Clipboard {
+                format: *format,
+                bytes: bytes.clone(),
+            })
+        }
+        ClipboardContent::Files(paths)
+            if entry.format == ClipboardFormat::Image && paths.len() == 1 =>
+        {
+            Some(ClipboardPreviewImageSource::File(paths[0].clone()))
+        }
+        _ => None,
+    }
+}
+
 fn raster_image_format(format: ImageFormat) -> Option<image::ImageFormat> {
     match format {
         ImageFormat::Png => Some(image::ImageFormat::Png),
@@ -198,6 +216,12 @@ fn render_preview_pixels(
 pub enum ClipboardSortMode {
     Recent,
     Frequent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClipboardFilterMode {
+    All,
+    Favorites,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -343,6 +367,7 @@ pub struct ClipboardEntry {
     pub captured_at: u64,
     pub use_count: u64,
     pub format: ClipboardFormat,
+    pub is_favorite: bool,
 }
 
 pub struct ClipboardSelection {
@@ -356,6 +381,7 @@ pub struct ClipboardPlugin {
     query: String,
     history_limit: HistoryLimit,
     sort_mode: ClipboardSortMode,
+    filter_mode: ClipboardFilterMode,
     preview_open: bool,
     preview_source: Option<ClipboardPreviewImageSource>,
     preview_assets: HashSet<ClipboardPreviewImageSource>,
@@ -399,27 +425,27 @@ impl ClipboardPlugin {
             .as_deref()
             .and_then(HistoryLimit::parse)
             .unwrap_or(HistoryLimit::Limited(100));
-        let mut entries = storage
+        let entries = storage
             .as_ref()
             .and_then(|s| s.read("data.bin"))
             .map(|bytes| decode(&bytes))
             .unwrap_or_default();
-        if let HistoryLimit::Limited(limit) = history_limit {
-            entries.truncate(limit);
-        }
-        Self {
+        let mut plugin = Self {
             entries,
             storage,
             query: String::new(),
             history_limit,
             sort_mode: ClipboardSortMode::Recent,
+            filter_mode: ClipboardFilterMode::All,
             preview_open: false,
             preview_source: None,
             preview_assets: HashSet::new(),
             dirty: false,
             ignored_clipboard: None,
             last_native_change_count: None,
-        }
+        };
+        plugin.apply_limit();
+        plugin
     }
     pub fn setting_definitions(
         &self,
@@ -494,20 +520,7 @@ impl ClipboardPlugin {
         let source = self
             .current_entries()
             .get(index)
-            .and_then(|entry| match &entry.content {
-                ClipboardContent::Image { format, bytes, .. } => {
-                    Some(ClipboardPreviewImageSource::Clipboard {
-                        format: *format,
-                        bytes: bytes.clone(),
-                    })
-                }
-                ClipboardContent::Files(paths)
-                    if entry.format == ClipboardFormat::Image && paths.len() == 1 =>
-                {
-                    Some(ClipboardPreviewImageSource::File(paths[0].clone()))
-                }
-                _ => None,
-            });
+            .and_then(|entry| preview_image_source(entry));
 
         if source.as_ref() == self.preview_source.as_ref() {
             return;
@@ -531,14 +544,17 @@ impl ClipboardPlugin {
     pub fn sort_mode(&self) -> ClipboardSortMode {
         self.sort_mode
     }
+
+    pub fn filter_mode(&self) -> ClipboardFilterMode {
+        self.filter_mode
+    }
+
+    pub fn set_filter_mode(&mut self, mode: ClipboardFilterMode) {
+        self.filter_mode = mode;
+    }
+
     pub fn set_sort_mode(&mut self, mode: ClipboardSortMode) {
         self.sort_mode = mode;
-    }
-    pub fn toggle_sort_mode(&mut self) {
-        self.sort_mode = match self.sort_mode {
-            ClipboardSortMode::Recent => ClipboardSortMode::Frequent,
-            ClipboardSortMode::Frequent => ClipboardSortMode::Recent,
-        };
     }
     pub fn current_entries(&self) -> Vec<&ClipboardEntry> {
         let query = self.query.trim().to_lowercase();
@@ -546,13 +562,14 @@ impl ClipboardPlugin {
             .entries
             .iter()
             .filter(|entry| {
-                query.is_empty()
-                    || entry
-                        .content
-                        .searchable_text()
-                        .to_lowercase()
-                        .contains(&query)
-                    || entry.format.label().to_lowercase().contains(&query)
+                (self.filter_mode == ClipboardFilterMode::All || entry.is_favorite)
+                    && (query.is_empty()
+                        || entry
+                            .content
+                            .searchable_text()
+                            .to_lowercase()
+                            .contains(&query)
+                        || entry.format.label().to_lowercase().contains(&query))
             })
             .collect();
         match self.sort_mode {
@@ -563,6 +580,33 @@ impl ClipboardPlugin {
         }
         entries
     }
+
+    pub fn filtered_len(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|entry| self.filter_mode == ClipboardFilterMode::All || entry.is_favorite)
+            .count()
+    }
+
+    pub fn toggle_favorite(&mut self, index: usize) -> bool {
+        let entry_index = {
+            let Some(selected) = self.current_entries().get(index).copied() else {
+                return false;
+            };
+            let Some(entry_index) = self
+                .entries
+                .iter()
+                .position(|entry| std::ptr::eq(entry, selected))
+            else {
+                return false;
+            };
+            entry_index
+        };
+        self.entries[entry_index].is_favorite = !self.entries[entry_index].is_favorite;
+        self.persist();
+        true
+    }
+
     pub fn activate_entry(&mut self, index: usize) -> Option<ClipboardSelection> {
         let entry_index = {
             let selected = *self.current_entries().get(index)?;
@@ -624,11 +668,13 @@ impl ClipboardPlugin {
             self.persist_if_dirty();
             return false;
         }
-        let use_count = self
+        let (use_count, is_favorite) = self
             .entries
             .iter()
             .find(|entry| entry.content.same_as(&content))
-            .map_or(1, |entry| entry.use_count.saturating_add(1));
+            .map_or((1, false), |entry| {
+                (entry.use_count.saturating_add(1), entry.is_favorite)
+            });
         self.entries
             .retain(|entry| !entry.content.same_as(&content));
         self.entries.insert(
@@ -639,6 +685,7 @@ impl ClipboardPlugin {
                 native: native.map(Arc::new),
                 captured_at: now_seconds(),
                 use_count,
+                is_favorite,
             },
         );
         self.apply_limit();
@@ -649,7 +696,7 @@ impl ClipboardPlugin {
     pub fn clear(&mut self, current_clipboard: Option<ClipboardItem>) {
         self.close_preview();
         self.ignore_item(current_clipboard);
-        self.entries.clear();
+        self.entries.retain(|entry| entry.is_favorite);
         self.persist();
         self.dirty = false;
     }
@@ -661,12 +708,17 @@ impl ClipboardPlugin {
             item.and_then(content_from_item)
         };
     }
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
     fn apply_limit(&mut self) {
         if let HistoryLimit::Limited(limit) = self.history_limit {
-            self.entries.truncate(limit);
+            let mut history_entries = 0;
+            self.entries.retain(|entry| {
+                if entry.is_favorite {
+                    true
+                } else {
+                    history_entries += 1;
+                    history_entries <= limit
+                }
+            });
         }
     }
     fn persist(&self) {
@@ -844,6 +896,7 @@ fn encode(entries: &[ClipboardEntry]) -> Vec<u8> {
         };
         output.extend_from_slice(&entry.captured_at.to_le_bytes());
         output.extend_from_slice(&entry.use_count.to_le_bytes());
+        output.push(u8::from(entry.is_favorite));
         output.push(kind);
         output.extend_from_slice(&length.to_le_bytes());
         output.extend_from_slice(&payload);
@@ -854,12 +907,14 @@ fn encode(entries: &[ClipboardEntry]) -> Vec<u8> {
 }
 fn decode(bytes: &[u8]) -> Vec<ClipboardEntry> {
     if bytes.starts_with(HISTORY_MAGIC) {
-        decode_entries(&bytes[HISTORY_MAGIC.len()..])
+        decode_entries(&bytes[HISTORY_MAGIC.len()..], true)
+    } else if bytes.starts_with(LEGACY_HISTORY_MAGIC) {
+        decode_entries(&bytes[LEGACY_HISTORY_MAGIC.len()..], false)
     } else {
         Vec::new()
     }
 }
-fn decode_entries(bytes: &[u8]) -> Vec<ClipboardEntry> {
+fn decode_entries(bytes: &[u8], includes_favorite: bool) -> Vec<ClipboardEntry> {
     let mut cursor = Cursor::new(bytes);
     let mut entries = Vec::new();
     while entries.len() < MAX_DECODED_ENTRIES {
@@ -867,11 +922,19 @@ fn decode_entries(bytes: &[u8]) -> Vec<ClipboardEntry> {
         let mut uses = [0; 8];
         let mut kind = [0; 1];
         let mut length = [0; 4];
-        if cursor.read_exact(&mut timestamp).is_err()
-            || cursor.read_exact(&mut uses).is_err()
-            || cursor.read_exact(&mut kind).is_err()
-            || cursor.read_exact(&mut length).is_err()
-        {
+        if cursor.read_exact(&mut timestamp).is_err() || cursor.read_exact(&mut uses).is_err() {
+            break;
+        }
+        let is_favorite = if includes_favorite {
+            let mut favorite = [0; 1];
+            if cursor.read_exact(&mut favorite).is_err() || favorite[0] > 1 {
+                break;
+            }
+            favorite[0] == 1
+        } else {
+            false
+        };
+        if cursor.read_exact(&mut kind).is_err() || cursor.read_exact(&mut length).is_err() {
             break;
         }
         let length = u32::from_le_bytes(length) as usize;
@@ -921,6 +984,7 @@ fn decode_entries(bytes: &[u8]) -> Vec<ClipboardEntry> {
                 native: decode_native(&native_payload).map(Arc::new),
                 captured_at: u64::from_le_bytes(timestamp),
                 use_count: u64::from_le_bytes(uses),
+                is_favorite,
             });
         }
     }

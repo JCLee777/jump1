@@ -54,6 +54,8 @@ pub fn render(
             let back_handler = on_event.clone();
             let activate_handler = on_event.clone();
             let sort_handler = on_event.clone();
+            let filter_handler = on_event.clone();
+            let favorite_handler = on_event.clone();
             let clear_handler = on_event.clone();
             let url_handler = on_event.clone();
             let on_back: clipboard_view::BackHandler = Rc::new(move |window, cx| {
@@ -65,6 +67,13 @@ pub fn render(
             let on_sort: clipboard_view::SortHandler = Rc::new(move |mode, window, cx| {
                 sort_handler(PluginEvent::ClipboardSort(mode), window, cx);
             });
+            let on_filter: clipboard_view::FilterHandler = Rc::new(move |mode, window, cx| {
+                filter_handler(PluginEvent::ClipboardFilter(mode), window, cx);
+            });
+            let on_toggle_favorite: clipboard_view::FavoriteHandler =
+                Rc::new(move |index, window, cx| {
+                    favorite_handler(PluginEvent::ToggleClipboardFavorite(index), window, cx);
+                });
             let on_clear: clipboard_view::ClearHandler = Rc::new(move |window, cx| {
                 clear_handler(PluginEvent::ClearClipboard, window, cx);
             });
@@ -75,8 +84,9 @@ pub fn render(
                 input,
                 clipboard_scroll,
                 plugins.clipboard().current_entries(),
-                plugins.clipboard().len(),
+                plugins.clipboard().filtered_len(),
                 plugins.clipboard().sort_mode(),
+                plugins.clipboard().filter_mode(),
                 plugins.clipboard().preview_open(),
                 clipboard_preview_image,
                 selected,
@@ -86,6 +96,8 @@ pub fn render(
                 on_back,
                 on_activate,
                 on_sort,
+                on_filter,
+                on_toggle_favorite,
                 on_clear,
                 on_open_url,
             )

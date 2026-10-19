@@ -3,6 +3,7 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use gpui_kit::{
+    base::InteractiveElementExt as _,
     component::input::{Input, InputState},
     component::{
         Rope,
@@ -18,11 +19,158 @@ use crate::{
     theme::AppTheme,
 };
 
-use super::{ClipboardContent, ClipboardEntry, ClipboardFormat, ClipboardSortMode};
+use super::{
+    ClipboardContent, ClipboardEntry, ClipboardFilterMode, ClipboardFormat,
+    ClipboardPreviewImageAsset, ClipboardSortMode, preview_image_source,
+};
+
+pub(crate) struct ClipboardPinnedView {
+    entry: ClipboardEntry,
+    i18n: I18n,
+    image_source: Option<super::ClipboardPreviewImageSource>,
+}
+
+impl ClipboardPinnedView {
+    pub(crate) fn new(entry: ClipboardEntry, i18n: I18n) -> Self {
+        let image_source = preview_image_source(&entry);
+        Self {
+            entry,
+            i18n,
+            image_source,
+        }
+    }
+}
+
+struct ClipboardPinnedDragState {
+    should_move: bool,
+}
+
+impl Render for ClipboardPinnedDragState {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
+impl Render for ClipboardPinnedView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = AppTheme::resolve(cx);
+        let colors = theme.semantic.colors;
+        let spacing = theme.semantic.spacing;
+        let typography = &theme.semantic.typography;
+        let radius = theme.semantic.radius;
+        let note_background = note_background(&theme);
+        let is_image_preview = matches!(&self.entry.content, ClipboardContent::Image { .. })
+            || matches!(
+                &self.entry.content,
+                ClipboardContent::Files(paths)
+                    if paths.len() == 1 && self.entry.format == ClipboardFormat::Image
+            );
+        let drag_state =
+            window.use_state(cx, |_, _| ClipboardPinnedDragState { should_move: false });
+        let image = self.image_source.as_ref().and_then(|source| {
+            window
+                .use_asset::<AssetLogger<ClipboardPreviewImageAsset>>(source, cx)
+                .and_then(Result::ok)
+        });
+        let preview = if is_image_preview {
+            image
+                .map(pinned_image_preview)
+                .unwrap_or_else(|| div().size_full().into_any_element())
+        } else {
+            preview_content(&self.entry, image, &self.i18n, &theme)
+        };
+        div().size_full().child(
+            div()
+                .id("clipboard-pinned-note")
+                .size_full()
+                .flex()
+                .flex_col()
+                .rounded(radius.lg)
+                .border_1()
+                .border_color(colors.accent.opacity(0.14))
+                .font_family(typography.sans.clone())
+                .text_color(colors.foreground)
+                .bg(note_background)
+                .child(
+                    div()
+                        .id("clipboard-pinned-drag-bar")
+                        .h(px(38.))
+                        .window_control_area(WindowControlArea::Drag)
+                        .on_mouse_down_out(
+                            window.listener_for(&drag_state, |state, _, _, _| {
+                                state.should_move = false
+                            }),
+                        )
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            window.listener_for(&drag_state, |state, _, _, _| {
+                                state.should_move = true;
+                            }),
+                        )
+                        .on_mouse_up(
+                            MouseButton::Left,
+                            window.listener_for(&drag_state, |state, _, _, _| {
+                                state.should_move = false;
+                            }),
+                        )
+                        .on_mouse_move(window.listener_for(&drag_state, |state, _, window, _| {
+                            if state.should_move {
+                                state.should_move = false;
+                                window.start_window_move();
+                            }
+                        }))
+                        .on_double_click(|_, window, _| window.titlebar_double_click()),
+                )
+                .child(
+                    div()
+                        .id("clipboard-pinned-content")
+                        .flex_1()
+                        .min_w(px(0.))
+                        .min_h(px(0.))
+                        .when(is_image_preview, |this| this.overflow_hidden())
+                        .when(!is_image_preview, |this| {
+                            this.overflow_y_scroll()
+                                .px(spacing.xl)
+                                .pt(spacing.xs)
+                                .pb(spacing.xl)
+                        })
+                        .child(preview),
+                ),
+        )
+    }
+}
+
+fn note_background(theme: &AppTheme) -> Hsla {
+    let colors = theme.semantic.colors;
+    let is_light = colors.foreground.l < 0.5;
+    let (saturation, lightness) = if is_light {
+        ((colors.accent.s * 0.42).clamp(0.12, 0.36), 0.94)
+    } else {
+        ((colors.accent.s * 0.26).clamp(0.08, 0.24), 0.20)
+    };
+    Hsla {
+        h: colors.accent.h,
+        s: saturation,
+        l: lightness,
+        a: 1.0,
+    }
+}
+
+fn pinned_image_preview(image: Arc<RenderImage>) -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(img(image).size_full().object_fit(ObjectFit::Contain))
+        .into_any_element()
+}
 
 pub type BackHandler = Rc<dyn for<'a, 'b> Fn(&'a mut Window, &'b mut App)>;
 pub type ActivateHandler = Rc<dyn for<'a, 'b> Fn(usize, &'a mut Window, &'b mut App)>;
 pub type SortHandler = Rc<dyn for<'a, 'b> Fn(ClipboardSortMode, &'a mut Window, &'b mut App)>;
+pub type FilterHandler = Rc<dyn for<'a, 'b> Fn(ClipboardFilterMode, &'a mut Window, &'b mut App)>;
+pub type FavoriteHandler = Rc<dyn for<'a, 'b> Fn(usize, &'a mut Window, &'b mut App)>;
 pub type ClearHandler = Rc<dyn for<'a, 'b> Fn(&'a mut Window, &'b mut App)>;
 pub type OpenUrlHandler = Rc<dyn for<'a, 'b> Fn(String, &'a mut Window, &'b mut App)>;
 
@@ -40,6 +188,7 @@ pub fn render(
     entries: Vec<&ClipboardEntry>,
     total_entries: usize,
     sort_mode: ClipboardSortMode,
+    filter_mode: ClipboardFilterMode,
     preview_open: bool,
     preview_image: Option<Arc<RenderImage>>,
     selected: usize,
@@ -49,6 +198,8 @@ pub fn render(
     on_back: BackHandler,
     on_activate: ActivateHandler,
     on_sort: SortHandler,
+    on_filter: FilterHandler,
+    on_toggle_favorite: FavoriteHandler,
     on_clear: ClearHandler,
     on_open_url: OpenUrlHandler,
 ) -> AnyElement {
@@ -57,6 +208,11 @@ pub fn render(
     let typography = &theme.semantic.typography;
     let entries: Vec<_> = entries.into_iter().cloned().collect();
     let visible_entries = entries.len();
+    let empty_message = if filter_mode == ClipboardFilterMode::Favorites {
+        Message::ClipboardFavoritesEmpty
+    } else {
+        Message::ClipboardEmpty
+    };
     let preview_entry = preview_open
         .then(|| entries.get(selected).cloned())
         .flatten();
@@ -69,11 +225,12 @@ pub fn render(
             .min_h(px(0.))
             .px(spacing.lg)
             .py(spacing.md)
-            .child(empty_state(i18n.text(Message::ClipboardEmpty), theme))
+            .child(empty_state(i18n.text(empty_message), theme))
             .into_any_element()
     } else {
         let row_i18n = i18n.clone();
         let row_activate = on_activate.clone();
+        let row_toggle_favorite = on_toggle_favorite.clone();
         let item_height = theme.metrics.result_row_height + spacing.xs;
         uniform_list("clipboard-results", visible_entries, move |range, _, cx| {
             let row_theme = AppTheme::resolve(cx);
@@ -86,6 +243,7 @@ pub fn render(
                         &row_i18n,
                         &row_theme,
                         row_activate.clone(),
+                        row_toggle_favorite.clone(),
                     ))
                 })
                 .collect();
@@ -173,7 +331,14 @@ pub fn render(
                                 .child(i18n.text(Message::ClipboardClear)),
                         ),
                 )
-                .child(sort_tabs(sort_mode, i18n, theme, on_sort))
+                .child(clipboard_tabs(
+                    filter_mode,
+                    sort_mode,
+                    i18n,
+                    theme,
+                    on_filter,
+                    on_sort,
+                ))
                 .child(search_input(input, theme)),
         )
         .child(div().h(theme.metrics.divider).bg(colors.border))
@@ -336,24 +501,26 @@ fn preview_content(
                             .unwrap_or_else(|| empty_image_slot(theme)),
                     )
                 })
-                .children(paths.iter().take(100).map(|path| {
-                    div()
-                        .flex()
-                        .items_start()
-                        .gap(spacing.sm)
-                        .child(glyph(
-                            Glyph::File,
-                            theme.metrics.result_icon,
-                            colors.primary,
-                        ))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(0.))
-                                .text_size(typography.xs.size)
-                                .child(path.to_string_lossy().to_string()),
-                        )
-                }))
+                .when(!has_image_preview, |this| {
+                    this.children(paths.iter().take(100).map(|path| {
+                        div()
+                            .flex()
+                            .items_start()
+                            .gap(spacing.sm)
+                            .child(glyph(
+                                Glyph::File,
+                                theme.metrics.result_icon,
+                                colors.primary,
+                            ))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .text_size(typography.xs.size)
+                                    .child(path.to_string_lossy().to_string()),
+                            )
+                    }))
+                })
                 .when(paths.len() > 100, |this| {
                     this.child(
                         div()
@@ -640,6 +807,7 @@ fn clipboard_row(
     i18n: &I18n,
     theme: &AppTheme,
     on_activate: ActivateHandler,
+    on_toggle_favorite: FavoriteHandler,
 ) -> impl IntoElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
@@ -655,6 +823,19 @@ fn clipboard_row(
         i18n.clipboard_entry_detail(entry.content.size(), entry.captured_at, entry.use_count);
     let icon = entry_icon(&entry);
     let format_label = i18n.clipboard_format_label(entry.format);
+    let favorite_icon = if entry.is_favorite {
+        Glyph::StarFilled
+    } else {
+        Glyph::Star
+    };
+    let favorite_color = if selected {
+        selected_foreground
+    } else if entry.is_favorite {
+        colors.primary
+    } else {
+        colors.muted_foreground
+    };
+    let favorite_handler = on_toggle_favorite.clone();
 
     div()
         .id(format!("clipboard-{index}"))
@@ -753,59 +934,148 @@ fn clipboard_row(
                 })
                 .child(format_label),
         )
+        .child(
+            div()
+                .id(format!("clipboard-favorite-{index}"))
+                .size(px(28.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(radius.sm)
+                .cursor_pointer()
+                .hover(move |this| {
+                    this.bg(if selected {
+                        selected_control_background
+                    } else {
+                        control_background
+                    })
+                })
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    favorite_handler(index, window, cx);
+                })
+                .child(glyph(favorite_icon, px(16.), favorite_color)),
+        )
 }
 
-fn sort_tabs(
-    selected: ClipboardSortMode,
+fn clipboard_tabs(
+    selected_filter: ClipboardFilterMode,
+    selected_sort: ClipboardSortMode,
     i18n: &I18n,
     theme: &AppTheme,
+    on_filter: FilterHandler,
     on_sort: SortHandler,
 ) -> impl IntoElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
+    let typography = &theme.semantic.typography;
     let selected_background = theme.materials.selection;
+    let selected_foreground = theme.materials.selection_foreground;
     let hover_background = theme.materials.hover;
-    div().flex().gap(spacing.xs).children(
-        [
-            (
-                ClipboardSortMode::Recent,
-                i18n.text(Message::ClipboardSortRecent),
-            ),
-            (
-                ClipboardSortMode::Frequent,
-                i18n.text(Message::ClipboardSortFrequent),
-            ),
-        ]
-        .into_iter()
-        .map(move |(mode, label)| {
-            let handler = on_sort.clone();
+    let radius = theme.semantic.radius.md;
+    div()
+        .w_full()
+        .flex()
+        .items_center()
+        .justify_between()
+        .child(
             div()
-                .id(format!("clipboard-sort-{mode:?}"))
-                .px(spacing.md)
-                .py(spacing.sm)
-                .rounded(theme.semantic.radius.md)
+                .flex()
+                .items_center()
+                .gap(spacing.xxs)
+                .p(spacing.xxs)
+                .rounded(radius)
+                .border_1()
+                .border_color(colors.border)
+                .bg(theme.materials.window)
+                .children(
+                    [
+                        (
+                            ClipboardFilterMode::All,
+                            i18n.text(Message::ClipboardFilterAll),
+                        ),
+                        (
+                            ClipboardFilterMode::Favorites,
+                            i18n.text(Message::ClipboardFilterFavorites),
+                        ),
+                    ]
+                    .into_iter()
+                    .map(move |(mode, label)| {
+                        let handler = on_filter.clone();
+                        div()
+                            .id(format!("clipboard-filter-{mode:?}"))
+                            .h(px(30.))
+                            .px(spacing.md)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(radius)
+                            .cursor_pointer()
+                            .bg(if mode == selected_filter {
+                                selected_background
+                            } else {
+                                transparent_black()
+                            })
+                            .text_color(if mode == selected_filter {
+                                selected_foreground
+                            } else {
+                                colors.foreground
+                            })
+                            .hover(move |this| {
+                                this.bg(if mode == selected_filter {
+                                    selected_background
+                                } else {
+                                    hover_background
+                                })
+                            })
+                            .on_click(move |_, window, cx| handler(mode, window, cx))
+                            .child(
+                                div()
+                                    .text_size(typography.xs.size)
+                                    .line_height(typography.xs.line_height)
+                                    .font_weight(if mode == selected_filter {
+                                        FontWeight::SEMIBOLD
+                                    } else {
+                                        FontWeight::NORMAL
+                                    })
+                                    .child(label),
+                            )
+                    }),
+                ),
+        )
+        .child(
+            div()
+                .id("clipboard-sort-toggle")
+                .h(px(30.))
+                .px(spacing.sm)
+                .flex()
+                .items_center()
+                .gap(spacing.xs)
+                .rounded(radius)
+                .border_1()
+                .border_color(colors.border)
+                .bg(theme.materials.window)
                 .cursor_pointer()
-                .bg(if mode == selected {
-                    selected_background
-                } else {
-                    transparent_black()
+                .text_color(colors.foreground)
+                .hover(move |this| this.bg(hover_background))
+                .on_click(move |_, window, cx| {
+                    let next_mode = match selected_sort {
+                        ClipboardSortMode::Recent => ClipboardSortMode::Frequent,
+                        ClipboardSortMode::Frequent => ClipboardSortMode::Recent,
+                    };
+                    on_sort(next_mode, window, cx);
                 })
-                .text_color(if mode == selected {
-                    theme.materials.selection_foreground
-                } else {
-                    colors.muted_foreground
-                })
-                .hover(move |this| {
-                    this.bg(if mode == selected {
-                        selected_background
-                    } else {
-                        hover_background
-                    })
-                })
-                .on_click(move |_, window, cx| handler(mode, window, cx))
-                .child(label)
-        }),
-    )
+                .child(glyph(Glyph::Sort, px(14.), colors.muted_foreground))
+                .child(
+                    div()
+                        .text_size(typography.xs.size)
+                        .line_height(typography.xs.line_height)
+                        .child(i18n.text(match selected_sort {
+                            ClipboardSortMode::Recent => Message::ClipboardSortRecent,
+                            ClipboardSortMode::Frequent => Message::ClipboardSortFrequent,
+                        })),
+                ),
+        )
 }
 
 fn entry_icon(entry: &ClipboardEntry) -> Glyph {

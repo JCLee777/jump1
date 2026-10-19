@@ -5,6 +5,8 @@ use gpui_kit::{Hsla, Pixels, Styled, component::Icon};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Glyph {
     Search,
+    Star,
+    StarFilled,
     Application,
     ArrowDown,
     ArrowLeft,
@@ -32,6 +34,8 @@ impl Glyph {
     fn bytes(self) -> &'static [u8] {
         match self {
             Self::Search => include_bytes!("../assets/icons/search.svg"),
+            Self::Star => include_bytes!("../assets/icons/star.svg"),
+            Self::StarFilled => include_bytes!("../assets/icons/star-filled.svg"),
             Self::Application => include_bytes!("../assets/icons/application.svg"),
             Self::ArrowDown => include_bytes!("../assets/icons/arrow-down.svg"),
             Self::ArrowLeft => include_bytes!("../assets/icons/arrow-left.svg"),
