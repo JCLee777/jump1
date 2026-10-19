@@ -48,6 +48,8 @@ pub(crate) struct Jump1Shell {
     clipboard_results_scroll: UniformListScrollHandle,
     i18n: I18n,
     plugins: PluginManager,
+    update_prompt_focus: FocusHandle,
+    previous_update_focus: Option<FocusHandle>,
     update_status: UpdateStatus,
     dismissed_update_prompt: Option<String>,
     selected: usize,
@@ -88,6 +90,7 @@ impl Jump1Shell {
                 .max(f64::from(MAX_PANEL_HEIGHT))
                 .validate(|value, _| value.chars().all(|character| character.is_ascii_digit()))
         });
+        let update_prompt_focus = cx.focus_handle();
         let input_subscription =
             cx.subscribe(&input, |this, input, event: &InputEvent, cx| match event {
                 InputEvent::Change => {
@@ -506,6 +509,8 @@ impl Jump1Shell {
             clipboard_results_scroll: UniformListScrollHandle::new(),
             i18n,
             plugins,
+            update_prompt_focus,
+            previous_update_focus: None,
             update_status: UpdateStatus::default(),
             dismissed_update_prompt: None,
             selected: 0,
@@ -1247,6 +1252,18 @@ impl Render for Jump1Shell {
             }
             _ => None,
         };
+        if update_prompt.is_some() {
+            if !self.update_prompt_focus.contains_focused(window, cx) {
+                self.previous_update_focus = window.focused(cx);
+                window.focus(&self.update_prompt_focus, cx);
+            }
+        } else if self.update_prompt_focus.is_focused(window) {
+            if let Some(previous_focus) = self.previous_update_focus.take() {
+                window.focus(&previous_focus, cx);
+            } else {
+                window.focus(&self.input.focus_handle(cx), cx);
+            }
+        }
         let content = if let Some((version, package_path, release_notes)) = update_prompt {
             let dismiss_shell = shell.downgrade();
             let dismiss_version = version.clone();
@@ -1298,11 +1315,13 @@ impl Render for Jump1Shell {
                         .items_center()
                         .justify_center()
                         .bg(rgb(0x000000).opacity(0.38))
+                        .occlude()
                         .on_click(|_, _, _| {})
                         .child(
                             div()
                                 .id("update-ready-dialog")
                                 .w(px(500.))
+                                .track_focus(&self.update_prompt_focus)
                                 .flex()
                                 .flex_col()
                                 .gap(spacing.md)

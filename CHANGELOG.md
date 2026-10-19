@@ -9,6 +9,16 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ### English
 
+## [0.1.21] - 2026-10-19
+
+### 简体中文
+
+- 更新就绪弹窗打开时自动获取焦点，并阻止鼠标和悬停操作触达后台界面。
+
+### English
+
+- Move focus into the update-ready dialog and block mouse and hover interactions with the background while it is open.
+
 ## [0.1.20] - 2026-10-19
 
 ### 简体中文
