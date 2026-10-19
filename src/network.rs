@@ -1,11 +1,75 @@
-//! Shared HTTP client for OpenAI-compatible chat completion APIs.
+//! Shared HTTP clients for GPUI assets and OpenAI-compatible chat completion APIs.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
+use futures::{FutureExt as _, future::BoxFuture, io::AsyncReadExt as _};
+use gpui_kit::http_client::{self, HttpClient};
 use reqwest::{Url, blocking::Client, redirect::Policy};
 use serde_json::{Value, json};
 
 const MAX_ERROR_BODY_CHARS: usize = 600;
+
+pub fn gpui_http_client() -> Arc<dyn HttpClient> {
+    Arc::new(GpuiHttpClient {
+        client: Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .redirect(Policy::limited(10))
+            .user_agent(concat!("Jump1/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("failed to initialize GPUI HTTP client"),
+        user_agent: http_client::http::HeaderValue::from_static(concat!(
+            "Jump1/",
+            env!("CARGO_PKG_VERSION")
+        )),
+    })
+}
+
+struct GpuiHttpClient {
+    client: Client,
+    user_agent: http_client::http::HeaderValue,
+}
+
+impl HttpClient for GpuiHttpClient {
+    fn user_agent(&self) -> Option<&http_client::http::HeaderValue> {
+        Some(&self.user_agent)
+    }
+
+    fn proxy(&self) -> Option<&http_client::Url> {
+        None
+    }
+
+    fn send(
+        &self,
+        request: http_client::Request<http_client::AsyncBody>,
+    ) -> BoxFuture<'static, http_client::Result<http_client::Response<http_client::AsyncBody>>>
+    {
+        let client = self.client.clone();
+        async move {
+            let (parts, mut body) = request.into_parts();
+            let mut body_bytes = Vec::new();
+            body.read_to_end(&mut body_bytes).await?;
+
+            let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes())?;
+            let mut request = client
+                .request(method, parts.uri.to_string())
+                .body(body_bytes);
+            for (name, value) in parts.headers.iter() {
+                request = request.header(name.as_str(), value.as_bytes());
+            }
+
+            let response = request.send()?;
+            let status = http_client::StatusCode::from_u16(response.status().as_u16())?;
+            let mut response_builder = http_client::Response::builder().status(status);
+            for (name, value) in response.headers() {
+                response_builder = response_builder.header(name.as_str(), value.as_bytes());
+            }
+            let body = response.bytes()?.to_vec();
+            Ok(response_builder.body(http_client::AsyncBody::from(body))?)
+        }
+        .boxed()
+    }
+}
 
 pub struct ChatCompletionClient {
     client: Client,

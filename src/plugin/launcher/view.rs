@@ -78,7 +78,8 @@ pub fn render(
         .child(
             div()
                 .px(theme.semantic.spacing.xl)
-                .py(theme.semantic.spacing.lg)
+                .pt(theme.metrics.header_top)
+                .pb(theme.semantic.spacing.lg)
                 .child(search_input(input, theme)),
         )
         .child(div().h(theme.metrics.divider).bg(colors.border))
@@ -229,6 +230,7 @@ fn result_icon(result: &SearchResult, selected: bool, theme: &AppTheme) -> AnyEl
         ResultKind::Plugin => match result.title {
             crate::plugin::protocol::ResultTitle::JsonPlugin => Glyph::Json,
             crate::plugin::protocol::ResultTitle::YamlPlugin => Glyph::Yaml,
+            crate::plugin::protocol::ResultTitle::MarkdownPlugin => Glyph::Markdown,
             crate::plugin::protocol::ResultTitle::TranslatePlugin => Glyph::Translate,
             crate::plugin::protocol::ResultTitle::SettingsPlugin => Glyph::Appearance,
             _ => Glyph::Clipboard,

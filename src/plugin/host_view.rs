@@ -104,6 +104,7 @@ pub fn render(
         }
         PluginId::Json => plugins.json().page().clone().into_any_element(),
         PluginId::Yaml => plugins.yaml().page().clone().into_any_element(),
+        PluginId::Markdown => plugins.markdown().page().clone().into_any_element(),
         PluginId::Translate => plugins.translate().page().clone().into_any_element(),
         PluginId::Settings => {
             let back_handler = on_event.clone();

@@ -7,7 +7,15 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ### 简体中文
 
+- 新增 Markdown 编辑器插件，支持语法高亮、实时预览、剪切板导入和本地草稿恢复。
+- Markdown 预览支持显示网络图片、本地绝对路径、`file://` 和 `data:` URL 图片。
+- Markdown 分栏视图中，编辑器和预览的滚动位置保持同步。
+
 ### English
+
+- Added a Markdown editor plugin with syntax highlighting, live preview, clipboard import, and local draft recovery.
+- Markdown previews now display network images, as well as images referenced by absolute local paths, `file://` URLs, and `data:` URLs.
+- Synchronized scrolling between the editor and preview in split view.
 
 ## [0.1.23] - 2026-10-19
 

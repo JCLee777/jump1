@@ -6,6 +6,7 @@ pub mod compare;
 pub mod host_view;
 pub mod json;
 pub mod launcher;
+pub mod markdown;
 pub mod protocol;
 pub mod settings;
 pub mod shortcuts;
@@ -14,7 +15,11 @@ pub mod system;
 pub mod translate;
 pub mod yaml;
 
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use gpui_kit::{App, ClipboardItem, FocusHandle, Window};
 
@@ -23,6 +28,7 @@ use self::{
     clipboard::{ClipboardPlugin, ClipboardPreviewImageSource},
     json::JsonPlugin,
     launcher::LauncherPlugin,
+    markdown::MarkdownPlugin,
     protocol::{CommandAction, HostEffect, ResultDetail, ResultKind, ResultTitle, SearchResult},
     settings::{SettingDefinition, SettingsChange, SettingsPlugin, SettingsSection},
     shortcuts::{ShortcutBindingEvent, ShortcutPlugin},
@@ -38,6 +44,7 @@ pub enum PluginId {
     Clipboard,
     Json,
     Yaml,
+    Markdown,
     Translate,
     Settings,
     System,
@@ -51,6 +58,7 @@ impl PluginId {
             Self::Clipboard => "clipboard",
             Self::Json => "json",
             Self::Yaml => "yaml",
+            Self::Markdown => "markdown",
             Self::Translate => "translate",
             Self::Settings => "settings",
             Self::System => "system",
@@ -126,6 +134,35 @@ pub enum PluginEvent {
     ShortcutBinding(ShortcutBindingEvent),
 }
 
+#[derive(Clone, Default)]
+pub(crate) struct ExternalOpenGuard(Arc<Mutex<Option<Instant>>>);
+
+impl ExternalOpenGuard {
+    pub(crate) fn mark_opening(&self) {
+        if let Ok(mut deadline) = self.0.lock() {
+            *deadline = Some(Instant::now() + Duration::from_secs(5));
+        }
+    }
+
+    pub(crate) fn should_preserve_panel(&self) -> bool {
+        let Ok(mut deadline) = self.0.lock() else {
+            return false;
+        };
+        if deadline.is_some_and(|deadline| Instant::now() < deadline) {
+            true
+        } else {
+            *deadline = None;
+            false
+        }
+    }
+
+    pub(crate) fn clear(&self) {
+        if let Ok(mut deadline) = self.0.lock() {
+            *deadline = None;
+        }
+    }
+}
+
 pub type PluginEventHandler = Rc<dyn for<'a, 'b> Fn(PluginEvent, &'a mut Window, &'b mut App)>;
 
 pub struct PluginManager {
@@ -135,6 +172,7 @@ pub struct PluginManager {
     clipboard: ClipboardPlugin,
     json: JsonPlugin,
     yaml: YamlPlugin,
+    markdown: MarkdownPlugin,
     translate: TranslatePlugin,
     settings: SettingsPlugin,
     system: SystemPlugin,
@@ -145,6 +183,7 @@ impl PluginManager {
     pub fn load(
         preferences: crate::state::Preferences,
         on_event: PluginEventHandler,
+        external_open_guard: ExternalOpenGuard,
         window: &mut Window,
         cx: &mut App,
     ) -> Self {
@@ -167,7 +206,15 @@ impl PluginManager {
         let translate = TranslatePlugin::load(
             PluginStorage::for_plugin(PluginId::Translate),
             preferences.locale,
+            on_event.clone(),
+            window,
+            cx,
+        );
+        let markdown = MarkdownPlugin::load(
+            PluginStorage::for_plugin(PluginId::Markdown),
+            preferences.locale,
             on_event,
+            external_open_guard,
             window,
             cx,
         );
@@ -185,6 +232,7 @@ impl PluginManager {
         registry.register(clipboard.manifest());
         registry.register(json.manifest());
         registry.register(yaml.manifest());
+        registry.register(markdown.manifest());
         registry.register(translate.manifest());
         registry.register(settings.manifest());
         registry.register(system.manifest());
@@ -196,6 +244,7 @@ impl PluginManager {
             clipboard,
             json,
             yaml,
+            markdown,
             translate,
             settings,
             system,
@@ -219,6 +268,7 @@ impl PluginManager {
             PluginId::Clipboard => i18n.text(crate::i18n::Message::ClipboardSearchPlaceholder),
             PluginId::Json => i18n.text(crate::i18n::Message::JsonName),
             PluginId::Yaml => i18n.text(crate::i18n::Message::YamlName),
+            PluginId::Markdown => i18n.text(crate::i18n::Message::MarkdownName),
             PluginId::Translate => i18n.text(crate::i18n::Message::TranslateName),
             PluginId::Settings | PluginId::System | PluginId::Shortcuts => {
                 i18n.text(crate::i18n::Message::SettingsName)
@@ -262,6 +312,10 @@ impl PluginManager {
         &self.yaml
     }
 
+    pub fn markdown(&self) -> &MarkdownPlugin {
+        &self.markdown
+    }
+
     pub fn translate(&self) -> &TranslatePlugin {
         &self.translate
     }
@@ -296,6 +350,7 @@ impl PluginManager {
             PluginId::Clipboard => self.clipboard.set_query(query),
             PluginId::Json => {}
             PluginId::Yaml => {}
+            PluginId::Markdown => {}
             PluginId::Translate => {}
             PluginId::Settings => {}
             PluginId::System => {}
@@ -314,6 +369,7 @@ impl PluginManager {
             PluginId::Clipboard => self.clipboard.current_entries().len(),
             PluginId::Json => 0,
             PluginId::Yaml => 0,
+            PluginId::Markdown => 0,
             PluginId::Translate => 0,
             PluginId::Settings => 0,
             PluginId::System => 0,
@@ -374,6 +430,18 @@ impl PluginManager {
                 action: CommandAction::OpenPlugin(PluginId::Yaml),
             });
         }
+        if self.registry.contains(PluginId::Markdown)
+            && (keep_plugin_searchable || self.launcher.is_plugin_entry_visible(PluginId::Markdown))
+            && MarkdownPlugin::matches_launcher_query(self.launcher.query())
+        {
+            plugin_results.push(SearchResult {
+                title: ResultTitle::MarkdownPlugin,
+                detail: ResultDetail::MarkdownPlugin,
+                kind: ResultKind::Plugin,
+                icon_path: None,
+                action: CommandAction::OpenPlugin(PluginId::Markdown),
+            });
+        }
         if self.registry.contains(PluginId::Translate)
             && (keep_plugin_searchable
                 || self.launcher.is_plugin_entry_visible(PluginId::Translate))
@@ -411,6 +479,7 @@ impl PluginManager {
                 .unwrap_or(PluginCommand::None),
             PluginId::Json => PluginCommand::None,
             PluginId::Yaml => PluginCommand::None,
+            PluginId::Markdown => PluginCommand::None,
             PluginId::Translate => PluginCommand::None,
             PluginId::Settings => PluginCommand::None,
             PluginId::System => PluginCommand::None,
@@ -452,6 +521,7 @@ impl PluginManager {
             PluginId::Clipboard,
             PluginId::Json,
             PluginId::Yaml,
+            PluginId::Markdown,
             PluginId::Translate,
             PluginId::Settings,
             PluginId::System,
@@ -462,6 +532,7 @@ impl PluginManager {
                 PluginId::Clipboard => self.clipboard.on_load(),
                 PluginId::Json => self.json.on_load(),
                 PluginId::Yaml => self.yaml.on_load(),
+                PluginId::Markdown => self.markdown.on_load(),
                 PluginId::Translate => self.translate.on_load(),
                 PluginId::Settings => self.settings.on_load(),
                 PluginId::System => self.system.on_load(),
@@ -483,6 +554,7 @@ impl PluginManager {
             PluginId::Clipboard => self.clipboard.on_activate(),
             PluginId::Json => self.json.on_activate(),
             PluginId::Yaml => self.yaml.on_activate(),
+            PluginId::Markdown => self.markdown.on_activate(),
             PluginId::Translate => self.translate.on_activate(),
             PluginId::Settings => self.settings.on_activate(),
             PluginId::System => self.system.on_activate(),
@@ -499,6 +571,7 @@ impl PluginManager {
             PluginId::Clipboard => self.clipboard.on_suspend(),
             PluginId::Json => self.json.on_suspend(),
             PluginId::Yaml => self.yaml.on_suspend(),
+            PluginId::Markdown => self.markdown.on_suspend(),
             PluginId::Translate => self.translate.on_suspend(),
             PluginId::Settings => self.settings.on_suspend(),
             PluginId::System => self.system.on_suspend(),
@@ -589,6 +662,7 @@ impl PluginManager {
                     self.save_system_preferences();
                     self.json.set_locale(*locale, cx);
                     self.yaml.set_locale(*locale, cx);
+                    self.markdown.set_locale(*locale, cx);
                     vec![HostEffect::ApplyLocale(*locale)]
                 }
                 crate::plugin::system::SystemChange::PanelSizePreset(_)
@@ -641,6 +715,7 @@ impl PluginManager {
         match self.active {
             PluginId::Json => Some(self.json.focus_handle(cx)),
             PluginId::Yaml => Some(self.yaml.focus_handle(cx)),
+            PluginId::Markdown => Some(self.markdown.focus_handle(cx)),
             PluginId::Translate => Some(self.translate.focus_handle(cx)),
             _ => None,
         }
@@ -657,6 +732,8 @@ impl PluginManager {
             self.json.import_text(text, window, cx);
         } else if plugin == PluginId::Yaml {
             self.yaml.import_text(text, window, cx);
+        } else if plugin == PluginId::Markdown {
+            self.markdown.import_text(text, window, cx);
         } else if plugin == PluginId::Translate {
             self.translate.import_text(text, window, cx);
         }
@@ -692,6 +769,7 @@ impl Drop for PluginManager {
             PluginId::Clipboard,
             PluginId::Json,
             PluginId::Yaml,
+            PluginId::Markdown,
             PluginId::Translate,
             PluginId::Settings,
             PluginId::System,
@@ -702,6 +780,7 @@ impl Drop for PluginManager {
                 PluginId::Clipboard => self.clipboard.on_shutdown(),
                 PluginId::Json => self.json.on_shutdown(),
                 PluginId::Yaml => self.yaml.on_shutdown(),
+                PluginId::Markdown => self.markdown.on_shutdown(),
                 PluginId::Translate => self.translate.on_shutdown(),
                 PluginId::Settings => self.settings.on_shutdown(),
                 PluginId::System => self.system.on_shutdown(),

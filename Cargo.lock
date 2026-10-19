@@ -3603,7 +3603,9 @@ name = "jump1"
 version = "0.1.23"
 dependencies = [
  "chrono",
+ "data-url",
  "embed-resource",
+ "futures",
  "global-hotkey",
  "gpui-kit",
  "gpui-pre-reqwest",
