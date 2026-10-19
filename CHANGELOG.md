@@ -9,7 +9,7 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ### English
 
-## [0.1.22] - 2026-10-19
+## [0.1.23] - 2026-10-19
 
 ### 简体中文
 
