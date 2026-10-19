@@ -9,6 +9,16 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ### English
 
+## [0.1.26] - 2026-10-19
+
+### 简体中文
+
+- 修复更新就绪弹窗中的更新说明无法自动换行、右侧内容被裁切的问题。
+
+### English
+
+- Fixed update notes being clipped instead of wrapping in the update-ready dialog.
+
 ## [0.1.25] - 2026-10-19
 
 ### 简体中文
