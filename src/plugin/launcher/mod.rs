@@ -417,7 +417,11 @@ impl LauncherPlugin {
             .map(|app| SearchResult {
                 title: crate::plugin::protocol::ResultTitle::Application(app.name.clone()),
                 detail: crate::plugin::protocol::ResultDetail::Literal(
-                    app.path.display().to_string(),
+                    if app.path.to_string_lossy().starts_with("shell:AppsFolder\\") {
+                        String::new()
+                    } else {
+                        app.path.display().to_string()
+                    },
                 ),
                 kind: ResultKind::RecentApplication,
                 icon_path: app.icon_path.clone(),

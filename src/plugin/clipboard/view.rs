@@ -2,8 +2,9 @@
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
+#[cfg(not(target_os = "windows"))]
+use gpui_kit::base::InteractiveElementExt as _;
 use gpui_kit::{
-    base::InteractiveElementExt as _,
     component::input::{Input, InputState},
     component::{
         Rope,
@@ -41,10 +42,12 @@ impl ClipboardPinnedView {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 struct ClipboardPinnedDragState {
     should_move: bool,
 }
 
+#[cfg(not(target_os = "windows"))]
 impl Render for ClipboardPinnedDragState {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
@@ -65,6 +68,7 @@ impl Render for ClipboardPinnedView {
                 ClipboardContent::Files(paths)
                     if paths.len() == 1 && self.entry.format == ClipboardFormat::Image
             );
+        #[cfg(not(target_os = "windows"))]
         let drag_state =
             window.use_state(cx, |_, _| ClipboardPinnedDragState { should_move: false });
         let image = self.image_source.as_ref().and_then(|source| {
@@ -79,6 +83,36 @@ impl Render for ClipboardPinnedView {
         } else {
             preview_content(&self.entry, image, &self.i18n, &theme)
         };
+        #[cfg(target_os = "windows")]
+        let title_bar = component::TitleBar::new().into_any_element();
+        #[cfg(not(target_os = "windows"))]
+        let title_bar = div()
+            .id("clipboard-pinned-drag-bar")
+            .h(px(38.))
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down_out(
+                window.listener_for(&drag_state, |state, _, _, _| state.should_move = false),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                window.listener_for(&drag_state, |state, _, _, _| {
+                    state.should_move = true;
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                window.listener_for(&drag_state, |state, _, _, _| {
+                    state.should_move = false;
+                }),
+            )
+            .on_mouse_move(window.listener_for(&drag_state, |state, _, window, _| {
+                if state.should_move {
+                    state.should_move = false;
+                    window.start_window_move();
+                }
+            }))
+            .on_double_click(|_, window, _| window.titlebar_double_click())
+            .into_any_element();
         div().size_full().child(
             div()
                 .id("clipboard-pinned-note")
@@ -91,36 +125,7 @@ impl Render for ClipboardPinnedView {
                 .font_family(typography.sans.clone())
                 .text_color(colors.foreground)
                 .bg(note_background)
-                .child(
-                    div()
-                        .id("clipboard-pinned-drag-bar")
-                        .h(px(38.))
-                        .window_control_area(WindowControlArea::Drag)
-                        .on_mouse_down_out(
-                            window.listener_for(&drag_state, |state, _, _, _| {
-                                state.should_move = false
-                            }),
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            window.listener_for(&drag_state, |state, _, _, _| {
-                                state.should_move = true;
-                            }),
-                        )
-                        .on_mouse_up(
-                            MouseButton::Left,
-                            window.listener_for(&drag_state, |state, _, _, _| {
-                                state.should_move = false;
-                            }),
-                        )
-                        .on_mouse_move(window.listener_for(&drag_state, |state, _, window, _| {
-                            if state.should_move {
-                                state.should_move = false;
-                                window.start_window_move();
-                            }
-                        }))
-                        .on_double_click(|_, window, _| window.titlebar_double_click()),
-                )
+                .child(title_bar)
                 .child(
                     div()
                         .id("clipboard-pinned-content")

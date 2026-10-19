@@ -232,6 +232,7 @@ pub fn discover_apps() -> Vec<ApplicationEntry> {
                         );
                     }
                 }
+                scan_windows_start_apps(&mut apps, jumbo_icon_list.as_ref());
                 append_windows_system_apps(&mut apps, jumbo_icon_list.as_ref());
                 apps
             })
@@ -1251,6 +1252,27 @@ mod windows_platform {
     }
 
     pub(super) fn launch_shortcut(path: &Path) -> Result<(), String> {
+        if path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .starts_with("shell:appsfolder\\")
+        {
+            let explorer = std::env::var_os("SystemRoot")
+                .map(|root| PathBuf::from(root).join("explorer.exe"))
+                .unwrap_or_else(|| PathBuf::from("explorer.exe"));
+            return Command::new(explorer)
+                .arg(path)
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map(|_| ())
+                .map_err(|error| {
+                    format!(
+                        "Windows could not launch AppsFolder entry {}: {error}",
+                        path.display()
+                    )
+                });
+        }
+
         Command::new("cmd.exe")
             .creation_flags(CREATE_NO_WINDOW)
             .args(["/C", "start", ""])
@@ -1632,6 +1654,76 @@ fn scan_windows_shortcuts(
 }
 
 #[cfg(target_os = "windows")]
+#[derive(serde::Deserialize)]
+struct WindowsStartApp {
+    name: String,
+    app_id: String,
+}
+
+#[cfg(target_os = "windows")]
+fn scan_windows_start_apps(
+    apps: &mut Vec<ApplicationEntry>,
+    jumbo_icon_list: Option<&windows::Win32::UI::Controls::IImageList>,
+) {
+    use std::os::windows::process::CommandExt;
+
+    let Some(system_root) = std::env::var_os("SystemRoot").map(PathBuf::from) else {
+        return;
+    };
+    let powershell = system_root.join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    if !powershell.is_file() {
+        return;
+    }
+
+    // Get-StartApps provides the app identities; AppsFolder resolves their
+    // display names and icons. Existing Start Menu shortcuts remain preferred
+    // when they already provide a launch target for the same app name.
+    let script = "$ErrorActionPreference = 'Stop'; $OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = $OutputEncoding; $apps = @(Get-StartApps | ForEach-Object { [pscustomobject]@{ name = $_.Name; app_id = $_.AppID } }); ConvertTo-Json -InputObject $apps -Compress";
+    let Ok(output) = Command::new(powershell)
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+        ])
+        .creation_flags(0x08000000)
+        .output()
+    else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+    let Ok(start_apps) = serde_json::from_slice::<Vec<WindowsStartApp>>(&output.stdout) else {
+        return;
+    };
+
+    for start_app in start_apps {
+        let name = start_app.name.trim();
+        let app_id = start_app.app_id.trim();
+        if name.is_empty()
+            || app_id.is_empty()
+            || is_windows_excluded_shortcut(name)
+            || apps
+                .iter()
+                .any(|app| text_search::normalize(&app.name) == text_search::normalize(name))
+        {
+            continue;
+        }
+
+        let parsing_name = PathBuf::from(format!("shell:AppsFolder\\{app_id}"));
+        let icon_path = windows_start_app_icon(app_id, jumbo_icon_list);
+        apps.push(application_entry(
+            name.to_owned(),
+            Vec::new(),
+            parsing_name,
+            icon_path,
+        ));
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn append_windows_system_apps(
     apps: &mut Vec<ApplicationEntry>,
     jumbo_icon_list: Option<&windows::Win32::UI::Controls::IImageList>,
@@ -1868,18 +1960,8 @@ fn windows_shortcut_icon(
     shortcut: &Path,
     jumbo_icon_list: Option<&windows::Win32::UI::Controls::IImageList>,
 ) -> Option<PathBuf> {
-    use windows_sys::Win32::{
-        Graphics::Gdi::{
-            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection,
-            DIB_RGB_COLORS, DeleteDC, DeleteObject, HGDIOBJ, SelectObject,
-        },
-        UI::{
-            Shell::{SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGetFileInfoW},
-            WindowsAndMessaging::{DI_NORMAL, DestroyIcon, DrawIconEx},
-        },
-    };
+    use windows_sys::Win32::UI::Shell::{SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGetFileInfoW};
 
-    const ICON_EDGE: i32 = 256;
     let metadata = fs::metadata(shortcut).ok()?;
     let modified = match metadata
         .modified()
@@ -1948,6 +2030,113 @@ fn windows_shortcut_icon(
         file_info.hIcon
     };
 
+    save_windows_icon(icon, &icon_path)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_start_app_icon(
+    app_id: &str,
+    jumbo_icon_list: Option<&windows::Win32::UI::Controls::IImageList>,
+) -> Option<PathBuf> {
+    use windows_sys::Win32::{
+        System::Com::CoTaskMemFree,
+        UI::Shell::{
+            SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_PIDL, SHGFI_SYSICONINDEX,
+            SHGetFileInfoW, SHParseDisplayName,
+        },
+    };
+
+    let mut hasher = DefaultHasher::new();
+    app_id.hash(&mut hasher);
+    b"apps-folder-icon-v1".hash(&mut hasher);
+    let cache_root = PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
+        .join("Jump1")
+        .join("icons");
+    fs::create_dir_all(&cache_root).ok()?;
+    let icon_path = cache_root.join(format!("{:016x}.png", hasher.finish()));
+    if icon_path.is_file() {
+        return Some(icon_path);
+    }
+
+    let parsing_name = format!("shell:AppsFolder\\{app_id}");
+    let parsing_name: Vec<u16> = parsing_name.encode_utf16().chain(Some(0)).collect();
+    let mut item_id_list = std::ptr::null_mut();
+    let mut attributes = 0;
+    let result = unsafe {
+        SHParseDisplayName(
+            parsing_name.as_ptr(),
+            std::ptr::null_mut(),
+            &mut item_id_list,
+            0,
+            &mut attributes,
+        )
+    };
+    if result < 0 || item_id_list.is_null() {
+        if !item_id_list.is_null() {
+            unsafe { CoTaskMemFree(item_id_list.cast()) };
+        }
+        return None;
+    }
+
+    let mut file_info = unsafe { std::mem::zeroed::<SHFILEINFOW>() };
+    let result = unsafe {
+        SHGetFileInfoW(
+            item_id_list.cast(),
+            0,
+            &mut file_info,
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_PIDL | SHGFI_SYSICONINDEX,
+        )
+    };
+    if result == 0 {
+        unsafe { CoTaskMemFree(item_id_list.cast()) };
+        return None;
+    }
+
+    let jumbo_icon = jumbo_icon_list.and_then(|image_list| unsafe {
+        image_list
+            .GetIcon(
+                file_info.iIcon,
+                windows::Win32::UI::Controls::ILD_TRANSPARENT.0,
+            )
+            .ok()
+    });
+    let icon = if let Some(icon) = jumbo_icon {
+        icon.0
+    } else {
+        let result = unsafe {
+            SHGetFileInfoW(
+                item_id_list.cast(),
+                0,
+                &mut file_info,
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                SHGFI_PIDL | SHGFI_ICON | SHGFI_LARGEICON,
+            )
+        };
+        if result == 0 || file_info.hIcon.is_null() {
+            unsafe { CoTaskMemFree(item_id_list.cast()) };
+            return None;
+        }
+        file_info.hIcon
+    };
+    unsafe { CoTaskMemFree(item_id_list.cast()) };
+    save_windows_icon(icon, &icon_path)
+}
+
+#[cfg(target_os = "windows")]
+fn save_windows_icon(
+    icon: windows_sys::Win32::UI::WindowsAndMessaging::HICON,
+    icon_path: &Path,
+) -> Option<PathBuf> {
+    use windows_sys::Win32::{
+        Graphics::Gdi::{
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection,
+            DIB_RGB_COLORS, DeleteDC, DeleteObject, HGDIOBJ, SelectObject,
+        },
+        UI::WindowsAndMessaging::{DI_NORMAL, DestroyIcon, DrawIconEx},
+    };
+
+    const ICON_EDGE: i32 = 256;
     let dc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
     if dc.is_null() {
         unsafe { DestroyIcon(icon) };
@@ -2028,7 +2217,7 @@ fn windows_shortcut_icon(
         return None;
     }
     let image = image::RgbaImage::from_raw(ICON_EDGE as u32, ICON_EDGE as u32, rgba)?;
-    image.save(&icon_path).ok().map(|()| icon_path)
+    image.save(icon_path).ok().map(|()| icon_path.to_path_buf())
 }
 
 fn application_entry(
