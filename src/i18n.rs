@@ -68,7 +68,6 @@ impl I18n {
             (Locale::ZhCn, Message::ClipboardPreviewKeyboardHint) => {
                 "↑ ↓ 切换   ·   ← / Esc 关闭预览   ·   ↵ 粘贴   ·   Ctrl+D 固定"
             }
-            (Locale::ZhCn, Message::ClipboardPreviewTruncated) => "仅显示前 16000 个字符",
             (Locale::ZhCn, Message::ClipboardPreviewMoreFiles) => "其余文件未显示",
             (Locale::ZhCn, Message::ClipboardSortRecent) => "按时间",
             (Locale::ZhCn, Message::ClipboardSortFrequent) => "按使用次数",
@@ -272,9 +271,6 @@ impl I18n {
             }
             (Locale::EnUs, Message::ClipboardPreviewKeyboardHint) => {
                 "↑ ↓ Switch   ·   ← / Esc Close preview   ·   ↵ Paste   ·   Ctrl+D Pin"
-            }
-            (Locale::EnUs, Message::ClipboardPreviewTruncated) => {
-                "Showing the first 16000 characters"
             }
             (Locale::EnUs, Message::ClipboardPreviewMoreFiles) => "More files not shown",
             (Locale::EnUs, Message::ClipboardSortRecent) => "Recent",
@@ -660,7 +656,6 @@ pub enum Message {
     ClipboardCopied,
     ClipboardKeyboardHint,
     ClipboardPreviewKeyboardHint,
-    ClipboardPreviewTruncated,
     ClipboardPreviewMoreFiles,
     ClipboardSortRecent,
     ClipboardSortFrequent,

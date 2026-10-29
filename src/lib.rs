@@ -15,7 +15,7 @@ mod update;
 use app::Jump1Shell;
 use gpui_kit::{component::theme::Theme, *};
 use plugin::system::ThemeChoice;
-use theme::{AccentColor, apply_accent_color};
+use theme::{AccentColor, apply_accent_color, apply_scrollbar_colors};
 
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -43,6 +43,7 @@ pub fn run() {
                 ThemeChoice::Light => Theme::change(component::theme::ThemeMode::Light, None, cx),
                 ThemeChoice::Dark => Theme::change(component::theme::ThemeMode::Dark, None, cx),
             }
+            apply_scrollbar_colors(cx);
 
             let bounds = Bounds::centered(None, theme::window_size(preferences.panel_size), cx);
             gpui_kit::open_window(
@@ -70,6 +71,7 @@ pub fn run() {
                     platform::install_tray_icon(window);
                     platform::center_window_on_pointer(window);
                     Theme::sync_system_appearance(Some(window), cx);
+                    apply_scrollbar_colors(cx);
                     let shell = cx.new(|cx| Jump1Shell::new(previous_application, window, cx));
                     if preferences.accent_color != AccentColor::Default {
                         apply_accent_color(preferences.accent_color, cx);

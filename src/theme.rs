@@ -132,6 +132,7 @@ pub fn apply_accent_color(accent: AccentColor, cx: &mut App) {
     let Some(color) = accent.color() else {
         let mode = Theme::global(cx).mode;
         Theme::change(mode, None, cx);
+        apply_scrollbar_colors(cx);
         return;
     };
 
@@ -160,6 +161,17 @@ pub fn apply_accent_color(accent: AccentColor, cx: &mut App) {
     });
 }
 
+pub fn apply_scrollbar_colors(cx: &mut App) {
+    Theme::update(cx, |theme| {
+        let thumb = Hsla {
+            a: 1.0,
+            ..theme.muted_foreground
+        };
+        theme.scrollbar_thumb = thumb;
+        theme.scrollbar_thumb_hover = thumb;
+    });
+}
+
 pub(crate) fn contrast_foreground(background: Hsla) -> Hsla {
     let channels = background.to_rgb();
     let linear = |channel: f32| {
@@ -185,6 +197,27 @@ pub fn window_size(panel_size: PanelSize) -> Size<Pixels> {
 
 pub fn window_min_size() -> Size<Pixels> {
     size(px(MIN_PANEL_WIDTH as f32), px(MIN_PANEL_HEIGHT as f32))
+}
+
+pub(crate) fn fit_window_size_to_aspect_ratio(
+    max_size: Size<Pixels>,
+    aspect_ratio: f32,
+) -> Size<Pixels> {
+    if !aspect_ratio.is_finite() || aspect_ratio <= 0. {
+        return max_size;
+    }
+
+    let max_width = f32::from(max_size.width);
+    let max_height = f32::from(max_size.height);
+    if max_width <= 0. || max_height <= 0. {
+        return max_size;
+    }
+
+    if max_width / max_height > aspect_ratio {
+        size(px(max_height * aspect_ratio), px(max_height))
+    } else {
+        size(px(max_width), px(max_width / aspect_ratio))
+    }
 }
 
 #[derive(Clone)]

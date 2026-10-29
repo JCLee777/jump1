@@ -18,7 +18,7 @@ use crate::{
         ExternalOpenGuard, PluginCommand, PluginEvent, PluginId, PluginManager,
         clipboard::{
             ClipboardFilterMode, ClipboardFormat, ClipboardPreviewImageAsset,
-            view::ClipboardPinnedView,
+            image_aspect_ratio as clipboard_image_aspect_ratio, view::ClipboardPinnedView,
         },
         host_view,
         protocol::{CommandAction, HostEffect},
@@ -29,7 +29,8 @@ use crate::{
     state::Preferences,
     theme::{
         AccentColor, AppTheme, MAX_PANEL_HEIGHT, MAX_PANEL_WIDTH, MIN_PANEL_HEIGHT,
-        MIN_PANEL_WIDTH, PanelSizePreset, apply_accent_color,
+        MIN_PANEL_WIDTH, PanelSizePreset, apply_accent_color, apply_scrollbar_colors,
+        fit_window_size_to_aspect_ratio,
     },
     update::{UpdateStatus, is_newer_version},
 };
@@ -184,6 +185,7 @@ impl Jump1Shell {
         );
 
         let input_focus = input.focus_handle(cx);
+        let main_window_handle = window.window_handle();
         let shell = cx.entity().downgrade();
         let key_subscription = cx.intercept_keystrokes(move |event, window, cx| {
             let handled = shell
@@ -213,17 +215,27 @@ impl Jump1Shell {
                         let i18n = shell.i18n.clone();
                         let display = window.display(cx).or_else(|| cx.primary_display());
                         let display_id = display.as_ref().map(|display| display.id());
-                        let window_size = if entry.format == ClipboardFormat::Image {
-                            display
-                                .as_ref()
-                                .map(|display| {
+                        let image_aspect_ratio = (entry.format == ClipboardFormat::Image)
+                            .then(|| clipboard_image_aspect_ratio(&entry))
+                            .flatten();
+                        let max_window_size = if entry.format == ClipboardFormat::Image {
+                            display.as_ref().map_or_else(
+                                || size(px(640.), px(480.)),
+                                |display| {
                                     let bounds = display.visible_bounds();
                                     size(bounds.size.width * 0.5, bounds.size.height * 0.5)
-                                })
-                                .unwrap_or_else(|| size(px(640.), px(480.)))
+                                },
+                            )
                         } else {
                             size(px(640.), px(480.))
                         };
+                        let window_size = image_aspect_ratio.map_or(max_window_size, |ratio| {
+                            fit_window_size_to_aspect_ratio(max_window_size, ratio)
+                        });
+                        let window_min_size =
+                            image_aspect_ratio.map_or(size(px(360.), px(240.)), |ratio| {
+                                fit_window_size_to_aspect_ratio(size(px(360.), px(240.)), ratio)
+                            });
                         let window_bounds = Bounds::centered(display_id, window_size, cx);
                         let options = WindowOptions {
                             window_bounds: Some(WindowBounds::Windowed(window_bounds)),
@@ -235,20 +247,35 @@ impl Jump1Shell {
                             app_owns_titlebar_drag: true,
                             is_resizable: true,
                             is_minimizable: true,
-                            window_min_size: Some(size(px(360.), px(240.))),
+                            window_min_size: Some(window_min_size),
                             window_decorations: Some(WindowDecorations::Client),
                             window_background: WindowBackgroundAppearance::Transparent,
                             ..Default::default()
                         };
                         if let Err(error) = gpui_kit::open_window(options, cx, move |window, cx| {
                             platform::set_window_always_on_top(window);
-                            cx.new(|_| ClipboardPinnedView::new(entry, i18n))
+                            if let Some(aspect_ratio) = image_aspect_ratio {
+                                platform::set_window_aspect_ratio(window, aspect_ratio);
+                            }
+                            cx.new(|cx| {
+                                ClipboardPinnedView::new(
+                                    entry,
+                                    i18n,
+                                    image_aspect_ratio,
+                                    window,
+                                    cx,
+                                )
+                            })
                         }) {
                             eprintln!("failed to open pinned clipboard window: {error}");
                         }
                         return true;
                     }
-                    if !input_focus.is_focused(window) {
+                    let main_clipboard_preview_is_open = window.window_handle()
+                        == main_window_handle
+                        && shell.plugins.active() == PluginId::Clipboard
+                        && shell.plugins.clipboard().preview_open();
+                    if !input_focus.is_focused(window) && !main_clipboard_preview_is_open {
                         return false;
                     }
                     if let Some(id) = shell.recording_shortcut {
@@ -339,8 +366,7 @@ impl Jump1Shell {
                             if shell.plugins.active() == PluginId::Clipboard
                                 && shell.plugins.clipboard().preview_open() =>
                         {
-                            shell.plugins.close_clipboard_preview();
-                            cx.notify();
+                            shell.close_clipboard_preview_and_focus_input(window, cx);
                             true
                         }
                         "enter" => {
@@ -351,8 +377,7 @@ impl Jump1Shell {
                             if shell.plugins.active() == PluginId::Clipboard
                                 && shell.plugins.clipboard().preview_open()
                             {
-                                shell.plugins.close_clipboard_preview();
-                                cx.notify();
+                                shell.close_clipboard_preview_and_focus_input(window, cx);
                             } else if shell.plugins.active() != PluginId::Launcher {
                                 shell.show_launcher(window, cx);
                             } else if !shell.plugins.launcher().query().is_empty() {
@@ -382,6 +407,7 @@ impl Jump1Shell {
                 ThemeChoice::Light => Theme::change(ThemeMode::Light, None, cx),
                 ThemeChoice::Dark => Theme::change(ThemeMode::Dark, None, cx),
             }
+            apply_scrollbar_colors(cx);
             let accent = this.plugins.system().accent_color();
             if accent != AccentColor::Default {
                 apply_accent_color(accent, cx);
@@ -550,6 +576,16 @@ impl Jump1Shell {
         self.plugins.current_count()
     }
 
+    fn close_clipboard_preview_and_focus_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.plugins.close_clipboard_preview();
+        window.focus(&self.input.focus_handle(cx), cx);
+        cx.notify();
+    }
+
     fn update_prompt_is_visible(&self) -> bool {
         matches!(
             &self.update_status,
@@ -631,7 +667,7 @@ impl Jump1Shell {
                     self.selected = index.min(self.current_count().saturating_sub(1));
                     self.scroll_to_result(self.selected);
                     if self.current_count() == 0 {
-                        self.plugins.close_clipboard_preview();
+                        self.close_clipboard_preview_and_focus_input(window, cx);
                     } else if preview_open {
                         self.plugins.update_clipboard_preview(self.selected);
                     }
@@ -1062,6 +1098,7 @@ impl Jump1Shell {
                     ThemeChoice::Light => Theme::change(ThemeMode::Light, None, cx),
                     ThemeChoice::Dark => Theme::change(ThemeMode::Dark, None, cx),
                 }
+                apply_scrollbar_colors(cx);
                 let accent = self.plugins.system().accent_color();
                 if accent != AccentColor::Default {
                     apply_accent_color(accent, cx);
@@ -1245,6 +1282,8 @@ impl Render for Jump1Shell {
             });
         });
         let content = host_view::render(
+            window,
+            cx,
             &self.plugins,
             &self.input,
             &self.panel_width_input,

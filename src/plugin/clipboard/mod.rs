@@ -9,6 +9,7 @@ use gpui_kit::{
 use image::{AnimationDecoder as _, DynamicImage, Frame, ImageDecoder as _};
 use std::{
     collections::HashSet,
+    fs,
     hash::{Hash, Hasher},
     io::{Cursor, Read},
     path::{Path, PathBuf},
@@ -132,6 +133,96 @@ pub(crate) fn preview_image_source(entry: &ClipboardEntry) -> Option<ClipboardPr
         }
         _ => None,
     }
+}
+
+pub(crate) fn image_aspect_ratio(entry: &ClipboardEntry) -> Option<f32> {
+    let dimensions = match &entry.content {
+        ClipboardContent::Image {
+            format: ImageFormat::Svg,
+            bytes,
+            ..
+        } => svg_dimensions(bytes)?,
+        ClipboardContent::Image { format, bytes, .. } => {
+            let format = raster_image_format(*format)?;
+            let decoder = image::ImageReader::with_format(Cursor::new(bytes.as_ref()), format)
+                .into_decoder()
+                .ok()?;
+            return aspect_ratio_from_decoder(decoder);
+        }
+        ClipboardContent::Files(paths)
+            if entry.format == ClipboardFormat::Image && paths.len() == 1 =>
+        {
+            let path = &paths[0];
+            if path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("svg"))
+            {
+                svg_dimensions(&fs::read(path).ok()?)?
+            } else {
+                let reader = image::ImageReader::open(path)
+                    .ok()?
+                    .with_guessed_format()
+                    .ok()?;
+                let decoder = reader.into_decoder().ok()?;
+                return aspect_ratio_from_decoder(decoder);
+            }
+        }
+        _ => return None,
+    };
+    aspect_ratio_from_dimensions(dimensions.0, dimensions.1)
+}
+
+fn aspect_ratio_from_decoder(mut decoder: impl image::ImageDecoder) -> Option<f32> {
+    let (mut width, mut height) = decoder.dimensions();
+    if matches!(
+        decoder.orientation().ok()?,
+        image::metadata::Orientation::Rotate90
+            | image::metadata::Orientation::Rotate270
+            | image::metadata::Orientation::Rotate90FlipH
+            | image::metadata::Orientation::Rotate270FlipH
+    ) {
+        std::mem::swap(&mut width, &mut height);
+    }
+    aspect_ratio_from_dimensions(width, height)
+}
+
+fn aspect_ratio_from_dimensions(width: u32, height: u32) -> Option<f32> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let ratio = width as f32 / height as f32;
+    (ratio.is_finite() && ratio > 0.).then_some(ratio)
+}
+
+fn svg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let svg = std::str::from_utf8(bytes).ok()?;
+    let document = roxmltree::Document::parse(svg).ok()?;
+    let root = document.root_element();
+    if let (Some(width), Some(height)) = (
+        root.attribute("width").and_then(parse_svg_length),
+        root.attribute("height").and_then(parse_svg_length),
+    ) {
+        return Some((width, height));
+    }
+    let mut view_box = root
+        .attribute("viewBox")?
+        .split(|character: char| character.is_ascii_whitespace() || character == ',')
+        .filter(|part| !part.is_empty())
+        .map(str::parse::<f32>);
+    let _min_x = view_box.next()?.ok()?;
+    let _min_y = view_box.next()?.ok()?;
+    let width = view_box.next()?.ok()?;
+    let height = view_box.next()?.ok()?;
+    (width > 0. && height > 0.).then_some((width.ceil() as u32, height.ceil() as u32))
+}
+
+fn parse_svg_length(value: &str) -> Option<u32> {
+    let numeric = value
+        .trim()
+        .trim_end_matches(|character: char| character.is_ascii_alphabetic() || character == '%');
+    let value = numeric.parse::<f32>().ok()?;
+    (value.is_finite() && value > 0.).then_some(value.ceil() as u32)
 }
 
 fn raster_image_format(format: ImageFormat) -> Option<image::ImageFormat> {

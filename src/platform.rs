@@ -278,6 +278,36 @@ pub fn hide_window_controls(window: &gpui_kit::Window) {
     }
 }
 
+pub(crate) fn set_window_aspect_ratio(window: &gpui_kit::Window, aspect_ratio: f32) {
+    if !aspect_ratio.is_finite() || aspect_ratio <= 0. {
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSView;
+        use objc2_foundation::NSSize;
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        let Ok(handle) = HasWindowHandle::window_handle(window) else {
+            return;
+        };
+        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+            return;
+        };
+        let view = unsafe { &*handle.ns_view.as_ptr().cast::<NSView>() };
+        if let Some(native_window) = view.window() {
+            native_window.setAspectRatio(NSSize::new(aspect_ratio as f64, 1.0));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    windows_platform::set_window_aspect_ratio(window, aspect_ratio);
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = window;
+}
+
 pub(crate) fn set_window_always_on_top(window: &gpui_kit::Window) {
     #[cfg(target_os = "macos")]
     {
@@ -888,7 +918,7 @@ mod windows_platform {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows::{
         Win32::{
-            Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError},
+            Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, RECT},
             System::Threading::CreateMutexW,
         },
         core::w,
@@ -909,6 +939,8 @@ mod windows_platform {
                 SM_CXSMICON, SM_CYSMICON, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SendMessageW,
                 SetWindowPos, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CLOSE,
                 WM_CONTEXTMENU, WM_GETICON, WM_LBUTTONUP, WM_NCDESTROY, WM_NULL, WM_RBUTTONUP,
+                WM_SIZING, WMSZ_BOTTOM, WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT,
+                WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT,
             },
         },
     };
@@ -981,6 +1013,7 @@ mod windows_platform {
     const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 0x171;
     const TRAY_EXIT_COMMAND: usize = 1;
     const TRAY_SUBCLASS_ID: usize = 0x4A_55_4D_50;
+    const ASPECT_RATIO_SUBCLASS_ID: usize = TRAY_SUBCLASS_ID + 1;
     const NIN_KEYSELECT_MESSAGE: u32 = NIN_SELECT + 1;
     static TASKBAR_CREATED_MESSAGE: OnceLock<u32> = OnceLock::new();
 
@@ -1248,6 +1281,99 @@ mod windows_platform {
                     SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
                 );
             }
+        }
+    }
+
+    pub(super) fn set_window_aspect_ratio(window: &gpui_kit::Window, aspect_ratio: f32) {
+        let Some(hwnd) = window_hwnd(window) else {
+            return;
+        };
+        let reference_data = aspect_ratio.to_bits() as usize;
+        unsafe {
+            SetWindowSubclass(
+                hwnd,
+                Some(aspect_ratio_window_proc),
+                ASPECT_RATIO_SUBCLASS_ID,
+                reference_data,
+            );
+        }
+    }
+
+    unsafe extern "system" fn aspect_ratio_window_proc(
+        hwnd: Hwnd,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        _subclass_id: usize,
+        reference_data: usize,
+    ) -> LRESULT {
+        if message == WM_SIZING && lparam != 0 {
+            let aspect_ratio = f32::from_bits(reference_data as u32);
+            if aspect_ratio.is_finite() && aspect_ratio > 0. {
+                let rect = unsafe { &mut *(lparam as *mut RECT) };
+                constrain_resize_rect(rect, wparam as u32, aspect_ratio);
+            }
+        }
+        if message == WM_NCDESTROY {
+            unsafe {
+                RemoveWindowSubclass(
+                    hwnd,
+                    Some(aspect_ratio_window_proc),
+                    ASPECT_RATIO_SUBCLASS_ID,
+                );
+            }
+        }
+        unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+    }
+
+    fn constrain_resize_rect(rect: &mut RECT, edge: u32, aspect_ratio: f32) {
+        let width = (rect.right - rect.left).max(1);
+        let height = (rect.bottom - rect.top).max(1);
+        if edge == WMSZ_LEFT || edge == WMSZ_RIGHT {
+            let height = ((width as f32 / aspect_ratio).round() as i32).max(1);
+            let center_y = (rect.top + rect.bottom) / 2;
+            rect.top = center_y - height / 2;
+            rect.bottom = rect.top + height;
+            if edge == WMSZ_LEFT {
+                rect.left = rect.right - width;
+            } else {
+                rect.right = rect.left + width;
+            }
+            return;
+        }
+        if edge == WMSZ_TOP || edge == WMSZ_BOTTOM {
+            let width = ((height as f32 * aspect_ratio).round() as i32).max(1);
+            let center_x = (rect.left + rect.right) / 2;
+            rect.left = center_x - width / 2;
+            rect.right = rect.left + width;
+            if edge == WMSZ_TOP {
+                rect.top = rect.bottom - height;
+            } else {
+                rect.bottom = rect.top + height;
+            }
+            return;
+        }
+
+        if !matches!(
+            edge,
+            WMSZ_TOPLEFT | WMSZ_TOPRIGHT | WMSZ_BOTTOMLEFT | WMSZ_BOTTOMRIGHT
+        ) {
+            return;
+        }
+        let ratio = f64::from(aspect_ratio);
+        let height =
+            ((ratio * f64::from(width) + f64::from(height)) / (ratio * ratio + 1.0)).round() as i32;
+        let width = ((height as f32 * aspect_ratio).round() as i32).max(1);
+        let height = height.max(1);
+        if matches!(edge, WMSZ_TOPLEFT | WMSZ_BOTTOMLEFT) {
+            rect.left = rect.right - width;
+        } else {
+            rect.right = rect.left + width;
+        }
+        if matches!(edge, WMSZ_TOPLEFT | WMSZ_TOPRIGHT) {
+            rect.top = rect.bottom - height;
+        } else {
+            rect.bottom = rect.top + height;
         }
     }
 

@@ -15,6 +15,8 @@ pub type EventHandler = Rc<dyn for<'a, 'b> Fn(PluginEvent, &'a mut Window, &'b m
 
 #[allow(clippy::too_many_arguments)]
 pub fn render(
+    window: &mut Window,
+    cx: &mut App,
     plugins: &PluginManager,
     input: &Entity<InputState>,
     panel_width_input: &Entity<InputState>,
@@ -81,6 +83,8 @@ pub fn render(
                 url_handler(PluginEvent::Action(CommandAction::Url(url)), window, cx);
             });
             clipboard_view::render(
+                window,
+                cx,
                 input,
                 clipboard_scroll,
                 plugins.clipboard().current_entries(),

@@ -9,6 +9,22 @@ available on the [GitHub Releases page](https://github.com/JCLee777/jump1/releas
 
 ### English
 
+## [0.1.27] - 2026-10-29
+
+### 简体中文
+
+- 剪切板文本预览改为只读语法高亮编辑器，支持全文选中复制且不再限制显示长度，并改善大段文本的渲染流畅度。
+- 修复剪切板预览的键盘导航、关闭和关闭后的焦点恢复问题。
+- 固定图片预览窗口按源图比例调整尺寸，拖动缩放时保持比例。
+- 统一应用滚动条颜色并提高可见性。
+
+### English
+
+- Replaced clipboard text previews with a read-only syntax-highlighted editor, enabling full selection and copying without a display length limit while improving responsiveness for long text.
+- Fixed clipboard preview keyboard navigation, closing, and focus restoration.
+- Sized pinned image previews to the source image's aspect ratio and preserved it while resizing.
+- Made scrollbar colors consistent across the app and improved their visibility.
+
 ## [0.1.26] - 2026-10-19
 
 ### 简体中文

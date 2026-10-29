@@ -4,8 +4,13 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 #[cfg(not(target_os = "windows"))]
 use gpui_kit::base::InteractiveElementExt as _;
+use gpui_kit::base::{
+    TextSelection, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun,
+};
 use gpui_kit::{
-    component::input::{Input, InputState},
+    BorderStyle, Corners, Edges, Element, ElementId, GlobalElementId, Hitbox, HitboxBehavior,
+    InspectorElementId, LayoutId, PaintQuad, SharedString, TextLayout,
+    component::input::{Editor, EditorState, Input, InputState},
     component::{
         Rope,
         highlighter::{LanguageRegistry, SyntaxHighlighter},
@@ -17,7 +22,7 @@ use gpui_kit::{
 use crate::{
     i18n::{I18n, Message},
     icon::{Glyph, glyph},
-    theme::AppTheme,
+    theme::{AppTheme, fit_window_size_to_aspect_ratio},
 };
 
 use super::{
@@ -29,17 +34,63 @@ pub(crate) struct ClipboardPinnedView {
     entry: ClipboardEntry,
     i18n: I18n,
     image_source: Option<super::ClipboardPreviewImageSource>,
+    image_aspect_ratio: Option<f32>,
+    text_editor: Option<Entity<EditorState>>,
 }
 
 impl ClipboardPinnedView {
-    pub(crate) fn new(entry: ClipboardEntry, i18n: I18n) -> Self {
+    pub(crate) fn new(
+        entry: ClipboardEntry,
+        i18n: I18n,
+        image_aspect_ratio: Option<f32>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let image_source = preview_image_source(&entry);
+        let text_editor = clipboard_text_editor_config(&entry).map(|config| {
+            cx.new(|cx| create_clipboard_editor_state(window, cx, config.text, config.language))
+        });
         Self {
             entry,
             i18n,
             image_source,
+            image_aspect_ratio,
+            text_editor,
         }
     }
+}
+
+struct ClipboardTextEditorConfig {
+    text: String,
+    language: &'static str,
+}
+
+fn clipboard_text_editor_config(entry: &ClipboardEntry) -> Option<ClipboardTextEditorConfig> {
+    let ClipboardContent::Text(text) = &entry.content else {
+        return None;
+    };
+    let preview_text = text.to_string();
+    let language = preview_language(&preview_text, entry.format).unwrap_or("plaintext");
+    Some(ClipboardTextEditorConfig {
+        text: preview_text,
+        language,
+    })
+}
+
+fn create_clipboard_editor_state(
+    window: &mut Window,
+    cx: &mut Context<EditorState>,
+    text: String,
+    language: &'static str,
+) -> EditorState {
+    EditorState::new(window, cx)
+        .language(language)
+        .line_number(false)
+        .indent_guides(false)
+        .soft_wrap(true)
+        .folding(false)
+        .searchable(false)
+        .default_value(text)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -51,6 +102,189 @@ struct ClipboardPinnedDragState {
 impl Render for ClipboardPinnedDragState {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
+    }
+}
+
+struct ClipboardSelectableText {
+    id: ElementId,
+    text: SharedString,
+    styled_text: StyledText,
+    selection_color: Hsla,
+}
+
+struct ClipboardSelectableTextState {
+    handle: TextSelectionHandle,
+    refresh_subscribed: bool,
+}
+
+impl ClipboardSelectableText {
+    fn new(
+        id: impl Into<ElementId>,
+        text: impl Into<SharedString>,
+        highlights: Vec<(std::ops::Range<usize>, HighlightStyle)>,
+        selection_color: Hsla,
+    ) -> Self {
+        let text = text.into();
+        Self {
+            id: id.into(),
+            styled_text: StyledText::new(text.clone()).with_highlights(highlights),
+            text,
+            selection_color,
+        }
+    }
+
+    fn paint_selection(
+        layout: &TextLayout,
+        range: std::ops::Range<usize>,
+        color: Hsla,
+        window: &mut Window,
+    ) {
+        let (Some(start), Some(end)) = (
+            layout.position_for_index(range.start),
+            layout.position_for_index(range.end),
+        ) else {
+            return;
+        };
+        let line_height = layout.line_height();
+        let layout_bounds = layout.bounds();
+        let selection_bounds = if start.y == end.y {
+            vec![Bounds::from_corners(
+                start,
+                point(end.x, end.y + line_height),
+            )]
+        } else {
+            let mut selection_bounds = vec![Bounds::from_corners(
+                start,
+                point(layout_bounds.right(), start.y + line_height),
+            )];
+            if end.y > start.y + line_height {
+                selection_bounds.push(Bounds::from_corners(
+                    point(layout_bounds.left(), start.y + line_height),
+                    point(layout_bounds.right(), end.y),
+                ));
+            }
+            selection_bounds.push(Bounds::from_corners(
+                point(layout_bounds.left(), end.y),
+                point(end.x, end.y + line_height),
+            ));
+            selection_bounds
+        };
+
+        for bounds in selection_bounds {
+            window.paint_quad(PaintQuad {
+                bounds,
+                background: color.into(),
+                corner_radii: Corners::default(),
+                border_widths: Edges::default(),
+                border_color: transparent_black(),
+                border_style: BorderStyle::default(),
+            });
+        }
+    }
+}
+
+impl IntoElement for ClipboardSelectableText {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for ClipboardSelectableText {
+    type RequestLayoutState = TextSelectionHandle;
+    type PrepaintState = Hitbox;
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        global_id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let (handle, subscribe_to_refresh) = window.with_element_state(
+            global_id.expect("ClipboardSelectableText must have a stable element id"),
+            |retained: Option<ClipboardSelectableTextState>, _| {
+                let mut state = retained.unwrap_or_else(|| ClipboardSelectableTextState {
+                    handle: TextSelectionHandle::new(self.text.clone(), cx),
+                    refresh_subscribed: false,
+                });
+                let subscribe_to_refresh = !state.refresh_subscribed;
+                state.refresh_subscribed = true;
+                ((state.handle.clone(), subscribe_to_refresh), state)
+            },
+        );
+        if subscribe_to_refresh {
+            handle.refresh_window_on_change(window, cx).detach();
+        }
+        let (layout_id, ()) = self
+            .styled_text
+            .request_layout(global_id, inspector_id, window, cx);
+        (layout_id, handle)
+    }
+
+    fn prepaint(
+        &mut self,
+        global_id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        handle: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        self.styled_text
+            .prepaint(global_id, inspector_id, bounds, &mut (), window, cx);
+        let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
+        let registration = TextSelectionRegistration::new(hitbox.clone(), bounds)
+            .with_text_bounds(vec![bounds])
+            .with_rendered_element(handle, window, cx);
+        handle.register(registration, window, cx);
+        hitbox
+    }
+
+    fn paint(
+        &mut self,
+        global_id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        handle: &mut Self::RequestLayoutState,
+        _: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let layout = self.styled_text.layout().clone();
+        let selected_text_before = TextSelection::selected_text(window, cx);
+        let projection = handle.update_runs(
+            &[TextSelectionRun::new(
+                self.text.clone(),
+                layout.clone(),
+                bounds,
+            )],
+            cx,
+        );
+        if selected_text_before != TextSelection::selected_text(window, cx) {
+            window.refresh();
+        }
+        for range in projection.ranges().iter().flatten().cloned() {
+            Self::paint_selection(&layout, range, self.selection_color, window);
+        }
+        self.styled_text.paint(
+            global_id,
+            inspector_id,
+            bounds,
+            &mut (),
+            &mut (),
+            window,
+            cx,
+        );
     }
 }
 
@@ -76,12 +310,34 @@ impl Render for ClipboardPinnedView {
                 .use_asset::<AssetLogger<ClipboardPreviewImageAsset>>(source, cx)
                 .and_then(Result::ok)
         });
+        if is_image_preview
+            && self.image_aspect_ratio.is_none()
+            && let Some(image) = image.as_ref()
+        {
+            let dimensions = image.size(0);
+            let width = u32::from(dimensions.width) as f32;
+            let height = u32::from(dimensions.height) as f32;
+            let aspect_ratio = width / height;
+            if aspect_ratio.is_finite() && aspect_ratio > 0. {
+                self.image_aspect_ratio = Some(aspect_ratio);
+                crate::platform::set_window_aspect_ratio(window, aspect_ratio);
+                let viewport_size = window.viewport_size();
+                let fitted_size = fit_window_size_to_aspect_ratio(viewport_size, aspect_ratio);
+                if (f32::from(viewport_size.width) - f32::from(fitted_size.width)).abs() > 1.
+                    || (f32::from(viewport_size.height) - f32::from(fitted_size.height)).abs() > 1.
+                {
+                    window.resize(fitted_size);
+                }
+            }
+        }
         let preview = if is_image_preview {
             image
                 .map(pinned_image_preview)
                 .unwrap_or_else(|| div().size_full().into_any_element())
+        } else if let Some(editor) = &self.text_editor {
+            clipboard_text_editor(editor, &theme)
         } else {
-            preview_content(&self.entry, image, &self.i18n, &theme)
+            preview_content(&self.entry, image, &self.i18n, &theme, true)
         };
         #[cfg(target_os = "windows")]
         let title_bar = component::TitleBar::new().into_any_element();
@@ -133,7 +389,10 @@ impl Render for ClipboardPinnedView {
                         .min_w(px(0.))
                         .min_h(px(0.))
                         .when(is_image_preview, |this| this.overflow_hidden())
-                        .when(!is_image_preview, |this| {
+                        .when(self.text_editor.is_some(), |this| {
+                            this.overflow_hidden().p(spacing.lg)
+                        })
+                        .when(!is_image_preview && self.text_editor.is_none(), |this| {
                             this.overflow_y_scroll()
                                 .px(spacing.xl)
                                 .pt(spacing.xs)
@@ -143,6 +402,27 @@ impl Render for ClipboardPinnedView {
                 ),
         )
     }
+}
+
+fn clipboard_text_editor(editor: &Entity<EditorState>, theme: &AppTheme) -> AnyElement {
+    let typography = &theme.semantic.typography;
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .child(
+            Editor::new(editor)
+                .readonly(true)
+                .appearance(false)
+                .bordered(false)
+                .flex_1()
+                .min_h(px(0.))
+                .w_full()
+                .font_family(typography.mono.clone())
+                .text_size(typography.sm.size)
+                .line_height(typography.sm.line_height),
+        )
+        .into_any_element()
 }
 
 fn note_background(theme: &AppTheme) -> Hsla {
@@ -183,11 +463,12 @@ thread_local! {
     static CLIPBOARD_HIGHLIGHTERS: RefCell<HashMap<String, SyntaxHighlighter>> = RefCell::new(HashMap::new());
 }
 
-const MAX_PREVIEW_CHARACTERS: usize = 16_000;
 const ENTRY_TITLE_PREVIEW_CHARACTERS: usize = 96;
 
 #[allow(clippy::too_many_arguments)]
 pub fn render(
+    window: &mut Window,
+    cx: &mut App,
     input: &Entity<InputState>,
     scroll: &UniformListScrollHandle,
     entries: Vec<&ClipboardEntry>,
@@ -222,6 +503,24 @@ pub fn render(
         .then(|| entries.get(selected).cloned())
         .flatten();
     let preview_is_open = preview_entry.is_some();
+    let preview_editor = if let Some((entry, config)) = preview_entry
+        .as_ref()
+        .and_then(|entry| clipboard_text_editor_config(entry).map(|config| (entry, config)))
+    {
+        let editor = window.use_keyed_state(
+            format!(
+                "clipboard-preview-editor-{}-{}",
+                selected, entry.captured_at
+            ),
+            cx,
+            move |window, cx| {
+                create_clipboard_editor_state(window, cx, config.text, config.language)
+            },
+        );
+        Some(editor)
+    } else {
+        None
+    };
     let row_entries = Rc::new(entries);
     let rows = if visible_entries == 0 {
         div()
@@ -355,6 +654,7 @@ pub fn render(
                         selected,
                         &entry,
                         preview_image,
+                        preview_editor.as_ref(),
                         i18n,
                         theme,
                         on_open_url,
@@ -377,6 +677,7 @@ fn preview_panel(
     selected: usize,
     entry: &ClipboardEntry,
     image: Option<Arc<RenderImage>>,
+    text_editor: Option<&Entity<EditorState>>,
     i18n: &I18n,
     theme: &AppTheme,
     on_open_url: OpenUrlHandler,
@@ -442,9 +743,14 @@ fn preview_panel(
                 ))
                 .flex_1()
                 .min_h(px(0.))
-                .overflow_y_scroll()
+                .when(text_editor.is_some(), |this| this.overflow_hidden())
+                .when(text_editor.is_none(), |this| this.overflow_y_scroll())
                 .p(spacing.lg)
-                .child(preview_content(entry, image, i18n, theme)),
+                .child(if let Some(editor) = text_editor {
+                    clipboard_text_editor(editor, theme)
+                } else {
+                    preview_content(entry, image, i18n, theme, false)
+                }),
         )
 }
 
@@ -453,18 +759,28 @@ fn preview_content(
     image: Option<Arc<RenderImage>>,
     i18n: &I18n,
     theme: &AppTheme,
+    selectable: bool,
 ) -> AnyElement {
     let colors = theme.semantic.colors;
     let spacing = theme.semantic.spacing;
     let typography = &theme.semantic.typography;
+    let selection_color = theme.materials.selection.opacity(0.38);
     match &entry.content {
         ClipboardContent::Text(text) => {
-            let end = text
-                .char_indices()
-                .nth(MAX_PREVIEW_CHARACTERS)
-                .map_or(text.len(), |(offset, _)| offset);
-            let preview_text = &text[..end];
-            let highlights = syntax_highlights(preview_text, entry.format, theme);
+            let highlights = syntax_highlights(text, entry.format, theme);
+            let rendered_text = if selectable {
+                ClipboardSelectableText::new(
+                    "clipboard-pinned-text",
+                    text.clone(),
+                    highlights,
+                    selection_color,
+                )
+                .into_any_element()
+            } else {
+                StyledText::new(text.clone())
+                    .with_highlights(highlights)
+                    .into_any_element()
+            };
             div()
                 .w_full()
                 .flex()
@@ -475,18 +791,8 @@ fn preview_content(
                         .font_family(typography.mono.clone())
                         .text_size(typography.sm.size)
                         .line_height(typography.sm.line_height)
-                        .child(
-                            StyledText::new(preview_text.to_owned()).with_highlights(highlights),
-                        ),
+                        .child(rendered_text),
                 )
-                .when(end < text.len(), |this| {
-                    this.child(
-                        div()
-                            .text_size(typography.xs.size)
-                            .text_color(colors.muted_foreground)
-                            .child(i18n.text(Message::ClipboardPreviewTruncated)),
-                    )
-                })
                 .into_any_element()
         }
         ClipboardContent::Image { .. } => image
@@ -507,7 +813,7 @@ fn preview_content(
                     )
                 })
                 .when(!has_image_preview, |this| {
-                    this.children(paths.iter().take(100).map(|path| {
+                    this.children(paths.iter().take(100).enumerate().map(|(index, path)| {
                         div()
                             .flex()
                             .items_start()
@@ -522,7 +828,17 @@ fn preview_content(
                                     .flex_1()
                                     .min_w(px(0.))
                                     .text_size(typography.xs.size)
-                                    .child(path.to_string_lossy().to_string()),
+                                    .child(if selectable {
+                                        ClipboardSelectableText::new(
+                                            format!("clipboard-pinned-file-path-{index}"),
+                                            path.to_string_lossy().to_string(),
+                                            Vec::new(),
+                                            selection_color,
+                                        )
+                                        .into_any_element()
+                                    } else {
+                                        path.to_string_lossy().to_string().into_any_element()
+                                    }),
                             )
                     }))
                 })
@@ -729,51 +1045,54 @@ fn preview_language(text: &str, format: ClipboardFormat) -> Option<&'static str>
 
 fn infer_code_language(text: &str) -> Option<&'static str> {
     let trimmed = text.trim_start();
-    if trimmed.starts_with("#!") || trimmed.starts_with("set -") || trimmed.starts_with("export ") {
+    let code = text
+        .lines()
+        .map(str::trim_start)
+        .find(|line| !line.is_empty() && !line.starts_with("//"))
+        .unwrap_or(trimmed);
+    if trimmed.starts_with("#!") || code.starts_with("set -") || code.starts_with("export ") {
         Some("bash")
-    } else if trimmed.starts_with("fn ")
-        || trimmed.starts_with("pub fn ")
-        || trimmed.starts_with("use ")
-        || trimmed.starts_with("struct ")
-        || trimmed.starts_with("impl ")
+    } else if trimmed.starts_with("//!")
+        || trimmed.starts_with("///")
+        || code.starts_with("fn ")
+        || code.starts_with("pub fn ")
+        || code.starts_with("use ")
+        || code.starts_with("struct ")
+        || code.starts_with("impl ")
     {
         Some("rust")
-    } else if trimmed.starts_with("def ")
-        || trimmed.starts_with("class ")
-        || trimmed.starts_with("from ")
-        || trimmed.starts_with("import ")
-            && !trimmed.starts_with("import {")
-            && !trimmed.contains(" from ")
-        || trimmed.starts_with("print(")
+    } else if code.starts_with("def ")
+        || code.starts_with("class ")
+        || code.starts_with("from ")
+        || code.starts_with("import ") && !code.starts_with("import {") && !code.contains(" from ")
+        || code.starts_with("print(")
     {
         Some("python")
-    } else if trimmed.starts_with("package ") || trimmed.starts_with("func ") {
+    } else if code.starts_with("package ") || code.starts_with("func ") {
         Some("go")
-    } else if trimmed.starts_with("#include ") {
+    } else if code.starts_with("#include ") {
         Some("c")
-    } else if trimmed.starts_with("interface ")
-        || trimmed.starts_with("type ") && trimmed.contains(" = ")
-    {
+    } else if code.starts_with("interface ") || code.starts_with("type ") && code.contains(" = ") {
         Some("typescript")
-    } else if trimmed.starts_with("const ")
-        || trimmed.starts_with("let ")
-        || trimmed.starts_with("function ")
-        || trimmed.starts_with("import {")
-        || trimmed.contains(" from ") && trimmed.starts_with("import ")
-        || trimmed.starts_with("console.")
-        || trimmed.contains(" => ")
+    } else if code.starts_with("const ")
+        || code.starts_with("let ")
+        || code.starts_with("function ")
+        || code.starts_with("import {")
+        || code.contains(" from ") && code.starts_with("import ")
+        || code.starts_with("console.")
+        || code.contains(" => ")
     {
         Some("javascript")
-    } else if trimmed.starts_with("[package]") || trimmed.starts_with("[dependencies]") {
+    } else if code.starts_with("[package]") || code.starts_with("[dependencies]") {
         Some("toml")
-    } else if trimmed.starts_with("@media ")
-        || trimmed.starts_with("@import ")
-        || trimmed.starts_with(":root")
-        || trimmed.starts_with(".") && trimmed.contains('{')
-        || trimmed.starts_with('#') && trimmed.contains('{')
+    } else if code.starts_with("@media ")
+        || code.starts_with("@import ")
+        || code.starts_with(":root")
+        || code.starts_with(".") && code.contains('{')
+        || code.starts_with('#') && code.contains('{')
     {
         Some("css")
-    } else if trimmed.starts_with('<') && trimmed.contains('>') {
+    } else if code.starts_with('<') && code.contains('>') {
         Some("html")
     } else {
         None
